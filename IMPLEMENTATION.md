@@ -10,7 +10,7 @@ evidence-based methodology of `docs/05-development-methodology.md`.
 pnpm install
 pnpm typecheck                      # node code (tsc --noEmit)
 pnpm --filter @companyos/web exec tsc -p tsconfig.json --noEmit   # web (React) typecheck
-pnpm test                           # 100 tests, 15 suites
+pnpm test                           # 110 tests, 18 suites
 pnpm test:coverage                  # enforces coverage gate (docs/07)
 
 # Web UI (comprehensive React app with guided onboarding)
@@ -59,8 +59,9 @@ touching business logic.
 | **07 Hardening** | Interface seams for durable backend (ADR-0003) & vector store (ADR-0004); audit integrity digest; tenancy via `orgId` scoping; infra overlays + NetworkPolicies + sealed secrets (`infra/`) | cross-cutting + `infra/` | (infra CI job) |
 | **08 Governance & evals** | Evaluators (source_coverage/factuality/policy/tone/hallucination) + suite gating, authorize+audit on every action, approvals (decide/timeout/escalate), budget enforcement, eval gate | `apps/eval-service`, `apps/governance` | 7 + 7 |
 
-**Total: 91 tests, all green.** Coverage exceeds the gate in `docs/07`
-(lines ~94%, branches ~79%, functions ~90%).
+**Total: 110 tests across 18 suites, all green** (incl. the web UI and the
+durable SQLite backends below). Coverage exceeds the gate in `docs/07`
+(lines ~94%, branches ~92%, functions ~88%).
 
 ## Flagship end-to-end proof
 
@@ -79,6 +80,26 @@ It also asserts the negative path: when the eval gate fails, the run is blocked
 and **no external effects** occur. Evidence artifacts (run inspector, audit log,
 integrity digest) are written to `e2e/artifacts/` and uploaded by CI.
 
+## Durable persistence (real backends, verifiable locally)
+
+Two of the most compliance-critical stores now have **durable SQLite-backed
+implementations** behind their existing interfaces, using the built-in
+`node:sqlite` (no native deps, no Docker). The ReBAC algorithm and audit digest
+are shared with the in-memory versions, so semantics are identical and proven by
+the same contract tests; new tests prove the data survives a process restart.
+
+- **Authz store**: `SqliteAuthz` (`@companyos/auth/sqlite`) — persists relation
+  tuples; reuses `runCheck`/`AbstractAuthz`, so it satisfies the same ReBAC
+  contract as `InMemoryAuthz`. ADR-0005.
+- **Audit log**: `SqliteAudit` (`@companyos/telemetry/sqlite`) — append-only
+  (no update/delete API), tamper-evident rolling digest, durable across reopen.
+  FR-8.4 / NFR-7.
+- Proven together in `apps/governance/src/durable.test.ts`: the *same*
+  `GovernanceService` runs on both SQLite backends and its audit trail survives a
+  simulated restart with the digest chain intact.
+- These are node-only (loaded via `createRequire`), so the browser bundle and
+  the in-memory test path are unaffected.
+
 ## What is intentionally interface-only (production swaps)
 
 These have working in-memory implementations behind the interface used in tests;
@@ -88,8 +109,9 @@ the production adapter is the remaining work, isolated by design:
   (logic, retries, pause/resume modeled in-process). ADR-0003.
 - **Vector store / graph**: pgvector/Qdrant/Graphiti behind `BrainService`
   retrieval (bag-of-words embedding used offline). ADR-0004.
-- **Authz store**: OpenFGA behind `AuthzEngine` (in-memory ReBAC mirrors
-  `model.fga`). ADR-0005.
+- **Distributed authz**: OpenFGA behind `AuthzEngine` for multi-node deploys
+  (would make `check` async); the SQLite store above covers single-node
+  durability today. ADR-0005.
 - **LLM agents & judges**: provider clients behind `AgentHandler`/eval
   `Evaluator` (deterministic stand-ins). ADR-0002.
 - **MCP transport**: `@modelcontextprotocol/sdk` wraps `McpGateway`’s typed

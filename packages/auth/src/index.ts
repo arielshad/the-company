@@ -1,10 +1,11 @@
 /**
  * Authorization core (docs/04-mcp-and-governance.md §2, ADR-0005).
  *
- * A compact in-memory ReBAC engine mirroring infra/platform/openfga/model.fga.
- * In production this is OpenFGA; the engine here is interface-compatible
- * (write tuples / check relations) so the gateway and services can depend on
- * `AuthzEngine` and swap the backend without code changes.
+ * A compact ReBAC engine mirroring infra/platform/openfga/model.fga. The check
+ * algorithm is separated from tuple *storage* via `TupleStore`, so the same
+ * (tested) semantics back both the in-memory store and the durable SQLite store
+ * (`@companyos/auth/sqlite`). In production this is OpenFGA; the engine here is
+ * interface-compatible so the gateway and services depend only on `AuthzEngine`.
  */
 
 export type SubjectKind = "user" | "agent" | "service";
@@ -34,7 +35,7 @@ interface TypeModel {
   [relation: string]: Rewrite[]; // union of rewrites
 }
 
-interface AuthzModel {
+export interface AuthzModel {
   [type: string]: TypeModel;
 }
 
@@ -113,80 +114,102 @@ function typeOf(object: string): string {
   return object.split(":")[0]!;
 }
 
+/** Storage abstraction for relationship tuples (in-memory or durable). */
+export interface TupleStore {
+  add(t: Tuple): void;
+  remove(t: Tuple): void;
+  /** Subjects of all tuples matching (relation, object). */
+  subjects(relation: string, object: string): string[];
+}
+
+/**
+ * Evaluate whether `subject` has `relation` on `object` under `model`.
+ * Shared by every AuthzEngine backend so semantics are identical.
+ */
+export function runCheck(
+  store: TupleStore,
+  model: AuthzModel,
+  subject: string,
+  relation: string,
+  object: string,
+  seen = new Set<string>()
+): boolean {
+  const guard = `${subject}|${relation}|${object}`;
+  if (seen.has(guard)) return false;
+  seen.add(guard);
+
+  const rewrites = model[typeOf(object)]?.[relation];
+  if (!rewrites) {
+    return store.subjects(relation, object).includes(subject);
+  }
+
+  for (const rw of rewrites) {
+    if (rw.kind === "this") {
+      for (const s of store.subjects(relation, object)) {
+        if (s === subject) return true;
+        const hash = s.indexOf("#"); // userset reference, e.g. "team:eng#member"
+        if (hash > 0) {
+          const usObject = s.slice(0, hash);
+          const usRelation = s.slice(hash + 1);
+          if (runCheck(store, model, subject, usRelation, usObject, seen)) return true;
+        }
+      }
+    } else if (rw.kind === "computed") {
+      if (runCheck(store, model, subject, rw.relation, object, seen)) return true;
+    } else if (rw.kind === "tupleToUserset") {
+      for (const target of store.subjects(rw.tupleset, object)) {
+        if (runCheck(store, model, subject, rw.computedRelation, target, seen)) return true;
+      }
+    }
+  }
+  return false;
+}
+
 export interface AuthzEngine {
   write(t: Tuple): void;
   delete(t: Tuple): void;
   check(subject: string, relation: string, object: string): boolean;
 }
 
-export class InMemoryAuthz implements AuthzEngine {
-  private tuples = new Set<string>();
-  constructor(private model: AuthzModel = COMPANYOS_MODEL) {}
+/** Base engine: delegates storage to a TupleStore, semantics to runCheck. */
+export abstract class AbstractAuthz implements AuthzEngine {
+  protected constructor(
+    protected store: TupleStore,
+    protected model: AuthzModel = COMPANYOS_MODEL
+  ) {}
+  write(t: Tuple): void {
+    this.store.add(t);
+  }
+  delete(t: Tuple): void {
+    this.store.remove(t);
+  }
+  check(subject: string, relation: string, object: string): boolean {
+    return runCheck(this.store, this.model, subject, relation, object);
+  }
+}
 
+export class InMemoryTupleStore implements TupleStore {
+  private tuples = new Set<string>();
   private key(t: Tuple): string {
     return `${t.subject}|${t.relation}|${t.object}`;
   }
-
-  write(t: Tuple): void {
+  add(t: Tuple): void {
     this.tuples.add(this.key(t));
   }
-  delete(t: Tuple): void {
+  remove(t: Tuple): void {
     this.tuples.delete(this.key(t));
   }
-
-  /** Direct tuples for (relation, object). */
-  private subjectsFor(relation: string, object: string): string[] {
-    const out: string[] = [];
+  subjects(relation: string, object: string): string[] {
     const suffix = `|${relation}|${object}`;
+    const out: string[] = [];
     for (const k of this.tuples) if (k.endsWith(suffix)) out.push(k.slice(0, k.length - suffix.length));
     return out;
   }
+}
 
-  /** Objects reachable from `object` via `tupleset` relation (e.g. parent). */
-  private tuplesetTargets(object: string, tupleset: string): string[] {
-    // tuple: object  has  tupleset  -> targetObject, stored as subject=targetObject
-    // Represented as: write({subject: parentObject, relation: tupleset, object})
-    return this.subjectsFor(tupleset, object);
-  }
-
-  check(subject: string, relation: string, object: string, seen = new Set<string>()): boolean {
-    const guard = `${subject}|${relation}|${object}`;
-    if (seen.has(guard)) return false;
-    seen.add(guard);
-
-    const rewrites = this.model[typeOf(object)]?.[relation];
-    if (!rewrites) {
-      // unknown relation: only direct tuple match
-      return this.subjectsFor(relation, object).includes(subject);
-    }
-
-    for (const rw of rewrites) {
-      if (rw.kind === "this") {
-        if (this.directOrUserset(subject, relation, object, seen)) return true;
-      } else if (rw.kind === "computed") {
-        if (this.check(subject, rw.relation, object, seen)) return true;
-      } else if (rw.kind === "tupleToUserset") {
-        for (const target of this.tuplesetTargets(object, rw.tupleset)) {
-          if (this.check(subject, rw.computedRelation, target, seen)) return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  /** Direct membership including userset tuples like "team:eng#member". */
-  private directOrUserset(subject: string, relation: string, object: string, seen: Set<string>): boolean {
-    for (const s of this.subjectsFor(relation, object)) {
-      if (s === subject) return true;
-      // userset reference: "team:eng#member" → subject must satisfy that relation
-      const hash = s.indexOf("#");
-      if (hash > 0) {
-        const usObject = s.slice(0, hash);
-        const usRelation = s.slice(hash + 1);
-        if (this.check(subject, usRelation, usObject, seen)) return true;
-      }
-    }
-    return false;
+export class InMemoryAuthz extends AbstractAuthz {
+  constructor(model: AuthzModel = COMPANYOS_MODEL) {
+    super(new InMemoryTupleStore(), model);
   }
 }
 

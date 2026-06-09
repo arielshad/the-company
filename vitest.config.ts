@@ -6,6 +6,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
+    // node:sqlite is newer than vite's builtin externals list — keep it external
+    server: { deps: { external: [/node:sqlite/] } },
     environmentMatchGlobs: [["apps/web/**", "jsdom"]],
     setupFiles: ["./apps/web/src/test-setup.ts"],
     include: ["packages/**/*.test.ts", "apps/**/*.test.ts", "apps/**/*.test.tsx", "e2e/**/*.spec.ts"],
