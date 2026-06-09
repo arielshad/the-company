@@ -1,0 +1,63 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: companyos-system
+
+commonLabels:
+  app.kubernetes.io/environment: staging
+
+resources:
+  - ../../base/web
+  - ../../base/gateway
+  - ../../base/agent-registry
+  - ../../base/brain
+  - ../../base/workflow-engine
+  - ../../base/skill-registry
+  - ../../base/governance
+  - ../../base/connectors
+  - ../../base/eval-service
+
+images:
+  - name: ghcr.io/companyos/web
+    newTag: staging
+  - name: ghcr.io/companyos/gateway
+    newTag: staging
+  - name: ghcr.io/companyos/agent-registry
+    newTag: staging
+  - name: ghcr.io/companyos/brain
+    newTag: staging
+  - name: ghcr.io/companyos/workflow-engine
+    newTag: staging
+  - name: ghcr.io/companyos/skill-registry
+    newTag: staging
+  - name: ghcr.io/companyos/governance
+    newTag: staging
+  - name: ghcr.io/companyos/connectors
+    newTag: staging
+  - name: ghcr.io/companyos/eval-service
+    newTag: staging
+
+patches:
+  # Staging uses base replicas (2); ensure all Deployments have replicas: 2
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: not-used
+      spec:
+        replicas: 2
+    target:
+      kind: Deployment
+      labelSelector: "app.kubernetes.io/part-of=companyos"
+
+  # Ensure all HPAs have minReplicas: 2
+  - patch: |-
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: not-used
+      spec:
+        minReplicas: 2
+    target:
+      kind: HorizontalPodAutoscaler
+      labelSelector: "app.kubernetes.io/part-of=companyos"

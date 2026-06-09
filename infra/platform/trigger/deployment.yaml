@@ -1,0 +1,47 @@
+# Trigger.dev durable execution backend (ADR-0003) used by workflow-engine for
+# the MVP. Heavy/critical workflows migrate to Temporal in PHASE-07; this app
+# remains for light jobs. Pin the image digest in overlays.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trigger
+  labels:
+    app.kubernetes.io/name: trigger
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trigger
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: trigger
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: trigger
+          image: ghcr.io/triggerdotdev/trigger.dev:latest
+          ports:
+            - name: http
+              containerPort: 3000
+          envFrom:
+            - secretRef:
+                name: trigger-secrets   # DATABASE_URL, REDIS_URL, session secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits: { cpu: "1", memory: "1Gi" }
+          readinessProbe:
+            httpGet: { path: /healthcheck, port: http }
+            initialDelaySeconds: 15
+          livenessProbe:
+            httpGet: { path: /healthcheck, port: http }
+            initialDelaySeconds: 30

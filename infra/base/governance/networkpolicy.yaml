@@ -1,0 +1,35 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: governance
+  namespace: companyos-system
+  labels:
+    app.kubernetes.io/name: governance
+    app.kubernetes.io/part-of: companyos
+    app.kubernetes.io/managed-by: argocd
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: governance
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow from gateway only
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gateway
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # Allow DNS
+    - ports:
+        - protocol: UDP
+          port: 53
+    # Allow to platform namespace (OpenFGA, Postgres)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: companyos-platform
