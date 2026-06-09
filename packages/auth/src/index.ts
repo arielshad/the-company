@@ -166,9 +166,10 @@ export function runCheck(
 }
 
 export interface AuthzEngine {
-  write(t: Tuple): void;
-  delete(t: Tuple): void;
-  check(subject: string, relation: string, object: string): boolean;
+  write(t: Tuple): void | Promise<void>;
+  delete(t: Tuple): void | Promise<void>;
+  /** Async to accommodate networked backends (OpenFGA); in-memory/SQLite resolve immediately. */
+  check(subject: string, relation: string, object: string): Promise<boolean>;
 }
 
 /** Base engine: delegates storage to a TupleStore, semantics to runCheck. */
@@ -183,7 +184,7 @@ export abstract class AbstractAuthz implements AuthzEngine {
   delete(t: Tuple): void {
     this.store.remove(t);
   }
-  check(subject: string, relation: string, object: string): boolean {
+  async check(subject: string, relation: string, object: string): Promise<boolean> {
     return runCheck(this.store, this.model, subject, relation, object);
   }
 }

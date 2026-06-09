@@ -73,3 +73,33 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  authz-openfga:
+    name: authz-openfga (OpenFGA integration)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Start OpenFGA
+        run: docker run -d --name openfga -p 8080:8080 openfga/openfga:latest run
+      - name: Wait for OpenFGA to be healthy
+        run: |
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:8080/healthz; then
+              echo "OpenFGA is healthy"
+              exit 0
+            fi
+            echo "Waiting for OpenFGA... attempt $i/15"
+            sleep 2
+          done
+          echo "OpenFGA did not become healthy in time"
+          exit 1
+      - name: Run OpenFGA integration tests
+        run: OPENFGA_API_URL=http://localhost:8080 pnpm vitest run packages/auth/src/openfga.integration.test.ts

@@ -157,7 +157,7 @@ export class BrainService {
   }
 
   /** Hybrid retrieval (vector+keyword+recency) with permission filter. */
-  search(principal: Principal, opts: SearchOptions): SearchHit[] {
+  async search(principal: Principal, opts: SearchOptions): Promise<SearchHit[]> {
     const qTokens = tokenize(opts.query);
     const qBag = bag(qTokens);
     const qSet = new Set(qTokens);
@@ -169,7 +169,10 @@ export class BrainService {
         (!i.expiresAt || Date.parse(i.expiresAt) > now)
     );
 
-    const visible = candidates.filter((i) => this.canView(principal, i));
+    const visible: BrainItem[] = [];
+    for (const i of candidates) {
+      if (await this.canView(principal, i)) visible.push(i);
+    }
 
     const scored = visible.map((i) => {
       const cBag = bag(tokenize(`${i.title} ${i.content}`));
@@ -198,16 +201,16 @@ export class BrainService {
       }));
   }
 
-  private canView(principal: Principal, item: BrainItem): boolean {
+  private async canView(principal: Principal, item: BrainItem): Promise<boolean> {
     // OpenFGA relation check AND captured source-ACL intersection (docs/04 §2)
-    const allowedByFga = this.authz.check(principal.id, "viewer", `memory_object:${item.id}`);
+    const allowedByFga = await this.authz.check(principal.id, "viewer", `memory_object:${item.id}`);
     if (!allowedByFga) return false;
     return sourceAclAdmits(principal, item.sourceAcl);
   }
 
-  writeMemory(principal: Principal, input: WriteMemoryInput, policy: MemoryWritePolicy): WriteMemoryResult {
+  async writeMemory(principal: Principal, input: WriteMemoryInput, policy: MemoryWritePolicy): Promise<WriteMemoryResult> {
     // permission: principal must be a writer on the org brain
-    if (!this.authz.check(principal.id, "writer", this.brainObject(input.orgId))) {
+    if (!(await this.authz.check(principal.id, "writer", this.brainObject(input.orgId)))) {
       this.recordAudit(principal, input.orgId, "memory.write", "deny");
       return { status: "rejected", reason: "not_authorized" };
     }

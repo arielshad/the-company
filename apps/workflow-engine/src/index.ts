@@ -196,7 +196,7 @@ export class WorkflowEngine {
       }
       case "brain_search": {
         const query = renderTemplate(String(node.query ?? ""), ctx);
-        const hits = this.deps.brain.search(principal, { orgId: run.orgId, query, topK: Number(node.topK ?? 5) });
+        const hits = await this.deps.brain.search(principal, { orgId: run.orgId, query, topK: Number(node.topK ?? 5) });
         record({ hits });
         return { nextId: firstNext };
       }
@@ -274,7 +274,7 @@ export class WorkflowEngine {
           requireApprovalBelow: undefined
         };
         const draft = this.buildMemoryDraft(run, node, ctx);
-        const res = this.deps.brain.writeMemory(principal, draft, policy);
+        const res = await this.deps.brain.writeMemory(principal, draft, policy);
         record(res);
         if (res.status !== "written") return { stop: true, failed: res.status === "rejected" };
         return { nextId: firstNext };

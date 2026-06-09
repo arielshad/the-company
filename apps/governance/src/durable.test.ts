@@ -27,7 +27,7 @@ function seedSqliteAuthz(path?: string): SqliteAuthz {
 }
 
 describe("GovernanceService on durable SQLite backends", () => {
-  it("authorizes against SqliteAuthz and persists the audit across a restart", () => {
+  it("authorizes against SqliteAuthz and persists the audit across a restart", async () => {
     const dir = mkdtempSync(join(tmpdir(), "gov-"));
     dirs.push(dir);
     const auditPath = join(dir, "audit.db");
@@ -36,8 +36,8 @@ describe("GovernanceService on durable SQLite backends", () => {
     const audit = new SqliteAudit(auditPath);
     const gov = new GovernanceService(authz, audit, new BudgetTracker());
 
-    expect(gov.authorize(alice, "writer", `brain:${ORG}`, "memory.write")).toBe(true); // admin → writer
-    expect(gov.authorize(bob, "writer", `brain:${ORG}`, "memory.write")).toBe(false); // member → denied
+    expect(await gov.authorize(alice, "writer", `brain:${ORG}`, "memory.write")).toBe(true); // admin → writer
+    expect(await gov.authorize(bob, "writer", `brain:${ORG}`, "memory.write")).toBe(false); // member → denied
 
     const digestBefore = audit.digest(ORG);
     audit.close();

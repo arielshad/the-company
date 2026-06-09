@@ -19,49 +19,49 @@ describe("InMemoryAuthz ReBAC", () => {
     return fga;
   }
 
-  it("org admin is a brain writer and reader (via parent)", () => {
+  it("org admin is a brain writer and reader (via parent)", async () => {
     const fga = setup();
-    expect(fga.check("user:alice", "writer", "brain:acme")).toBe(true);
-    expect(fga.check("user:alice", "reader", "brain:acme")).toBe(true);
+    expect(await fga.check("user:alice", "writer", "brain:acme")).toBe(true);
+    expect(await fga.check("user:alice", "reader", "brain:acme")).toBe(true);
   });
 
-  it("org member is a brain reader but not a writer", () => {
+  it("org member is a brain reader but not a writer", async () => {
     const fga = setup();
-    expect(fga.check("user:bob", "reader", "brain:acme")).toBe(true);
-    expect(fga.check("user:bob", "writer", "brain:acme")).toBe(false);
+    expect(await fga.check("user:bob", "reader", "brain:acme")).toBe(true);
+    expect(await fga.check("user:bob", "writer", "brain:acme")).toBe(false);
   });
 
-  it("memory_object viewer is derived from brain reader", () => {
+  it("memory_object viewer is derived from brain reader", async () => {
     const fga = setup();
-    expect(fga.check("user:bob", "viewer", "memory_object:m1")).toBe(true);
-    expect(fga.check("user:carol", "viewer", "memory_object:m1")).toBe(false);
+    expect(await fga.check("user:bob", "viewer", "memory_object:m1")).toBe(true);
+    expect(await fga.check("user:carol", "viewer", "memory_object:m1")).toBe(false);
   });
 
-  it("resolves userset tuples (team#member granted brain reader)", () => {
+  it("resolves userset tuples (team#member granted brain reader)", async () => {
     const fga = new InMemoryAuthz();
     fga.write({ subject: "user:carol", relation: "member", object: "team:eng" });
     fga.write({ subject: "team:eng#member", relation: "reader", object: "brain:eng" });
-    expect(fga.check("user:carol", "reader", "brain:eng")).toBe(true);
-    expect(fga.check("user:dan", "reader", "brain:eng")).toBe(false);
+    expect(await fga.check("user:carol", "reader", "brain:eng")).toBe(true);
+    expect(await fga.check("user:dan", "reader", "brain:eng")).toBe(false);
   });
 
-  it("team membership inherits from parent org", () => {
+  it("team membership inherits from parent org", async () => {
     const fga = new InMemoryAuthz();
     fga.write({ subject: "user:erin", relation: "member", object: "org:acme" });
     fga.write({ subject: "org:acme", relation: "parent", object: "team:eng" });
-    expect(fga.check("user:erin", "member", "team:eng")).toBe(true);
+    expect(await fga.check("user:erin", "member", "team:eng")).toBe(true);
   });
 
-  it("delete revokes access", () => {
+  it("delete revokes access", async () => {
     const fga = setup();
-    expect(fga.check("user:bob", "reader", "brain:acme")).toBe(true);
+    expect(await fga.check("user:bob", "reader", "brain:acme")).toBe(true);
     fga.delete({ subject: "user:bob", relation: "member", object: "org:acme" });
-    expect(fga.check("user:bob", "reader", "brain:acme")).toBe(false);
+    expect(await fga.check("user:bob", "reader", "brain:acme")).toBe(false);
   });
 });
 
 describe("principalFromClaims", () => {
-  it("maps a user with roles and groups", () => {
+  it("maps a user with roles and groups", async () => {
     const p = principalFromClaims({
       sub: "alice",
       org_id: "acme",
@@ -72,13 +72,13 @@ describe("principalFromClaims", () => {
     expect(p.groups).toEqual(["leadership"]);
   });
 
-  it("detects an agent principal", () => {
+  it("detects an agent principal", async () => {
     const p = principalFromClaims({ sub: "bot1", org_id: "acme", realm_access: { roles: ["agent"] } });
     expect(p.type).toBe("agent");
     expect(p.id).toBe("agent:bot1");
   });
 
-  it("detects a service principal", () => {
+  it("detects a service principal", async () => {
     const p = principalFromClaims({
       sub: "service-account-gateway",
       azp: "companyos-gateway",
@@ -93,16 +93,16 @@ describe("sourceAclAdmits", () => {
   const alice: Principal = { type: "user", id: "user:alice", orgId: "acme", roles: [], groups: ["leadership"] };
   const bob: Principal = { type: "user", id: "user:bob", orgId: "acme", roles: [], groups: ["eng"] };
 
-  it("admits by group membership", () => {
+  it("admits by group membership", async () => {
     expect(sourceAclAdmits(alice, { allow: ["group:leadership"] })).toBe(true);
     expect(sourceAclAdmits(bob, { allow: ["group:leadership"] })).toBe(false);
   });
 
-  it("admits by direct identity", () => {
+  it("admits by direct identity", async () => {
     expect(sourceAclAdmits(bob, { allow: ["user:bob"] })).toBe(true);
   });
 
-  it("admits public and absent ACLs", () => {
+  it("admits public and absent ACLs", async () => {
     expect(sourceAclAdmits(bob, { allow: [], public: true })).toBe(true);
     expect(sourceAclAdmits(bob, undefined)).toBe(true);
   });

@@ -23,7 +23,7 @@ export interface ToolDef {
   name: string;
   description: string;
   /** Silent capability check used to filter the catalog (no audit). */
-  visibleTo: (p: Principal, authz: AuthzEngine) => boolean;
+  visibleTo: (p: Principal, authz: AuthzEngine) => Promise<boolean>;
   /** (relation, object) authorized on call. */
   authorize: (p: Principal, args: Record<string, any>) => { relation: string; object: string };
   handler: (p: Principal, args: Record<string, any>) => unknown | Promise<unknown>;
@@ -58,10 +58,12 @@ export class McpGateway {
   }
 
   /** tools/list — policy-filtered per principal (FR-7.3). */
-  listTools(principal: Principal): Array<{ name: string; description: string }> {
-    return this.tools
-      .filter((t) => t.visibleTo(principal, this.deps.authz))
-      .map((t) => ({ name: t.name, description: t.description }));
+  async listTools(principal: Principal): Promise<Array<{ name: string; description: string }>> {
+    const out: Array<{ name: string; description: string }> = [];
+    for (const t of this.tools) {
+      if (await t.visibleTo(principal, this.deps.authz)) out.push({ name: t.name, description: t.description });
+    }
+    return out;
   }
 
   /** tools/call — authorize, audit, dispatch (FR-7.2/7.4). */
@@ -69,7 +71,7 @@ export class McpGateway {
     const tool = this.tools.find((t) => t.name === name);
     if (!tool) return { ok: false, error: `unknown_tool:${name}` };
     const { relation, object } = tool.authorize(principal, args);
-    const allowed = this.deps.governance.authorize(principal, relation, object, `tool.call:${name}`);
+    const allowed = await this.deps.governance.authorize(principal, relation, object, `tool.call:${name}`);
     if (!allowed) return { ok: false, error: "forbidden" };
     try {
       const result = await tool.handler(principal, args);

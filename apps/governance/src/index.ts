@@ -38,14 +38,14 @@ export class GovernanceService {
   ) {}
 
   /** Authorize an action and audit the decision (allow/deny). */
-  authorize(
+  async authorize(
     principal: Principal,
     relation: string,
     object: string,
     action: string,
     traceId?: string
-  ): boolean {
-    const allowed = this.authz.check(principal.id, relation, object);
+  ): Promise<boolean> {
+    const allowed = await this.authz.check(principal.id, relation, object);
     this.audit.append(
       makeAuditRecord({
         orgId: principal.orgId,
