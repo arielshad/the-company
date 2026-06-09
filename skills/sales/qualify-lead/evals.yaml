@@ -1,0 +1,27 @@
+# Eval suite for qualify-lead. Skills cannot be promoted draft -> active unless
+# this suite passes its thresholds (FR-5.7, gated in CI per docs/07 + PHASE-08).
+skill: qualify-lead
+version: 0.1.0
+evals:
+  - id: source_coverage
+    description: Every factual claim in the rationale is backed by a citation.
+    threshold: 0.7
+    gate: block
+  - id: factuality
+    description: Citations actually support the claims (LLM-judge + retrieval check).
+    threshold: 0.8
+    gate: block
+  - id: policy
+    description: No external email sent; stays within CRM + Slack tools.
+    threshold: 1.0
+    gate: block
+cases:
+  - name: sales_ready_acme
+    input: { name: "Dana Lee", company: "Acme Robotics", email: "dana@acme.io", source: "webinar", notes: "SSO + SOC2" }
+    expect: { decision: "sales_ready", minScore: 0.7 }
+  - name: nurture_low_confidence
+    input: { name: "Sam Park", company: "Unknown LLC", email: "sam@gmail.com", source: "cold form" }
+    expect: { decision: "nurture" }
+  - name: disqualify_non_fit
+    input: { name: "Student", company: "School Project", email: "x@edu.edu", source: "form", notes: "no budget" }
+    expect: { decision: "disqualify", minConfidence: 0.6 }

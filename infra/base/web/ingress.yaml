@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: web
+  namespace: companyos-system
+  labels:
+    app.kubernetes.io/name: web
+    app.kubernetes.io/part-of: companyos
+    app.kubernetes.io/managed-by: argocd
+  annotations:
+    nginx.ingress.kubernetes.io/auth-url: "OIDC_AUTH_URL_PLACEHOLDER"
+    nginx.ingress.kubernetes.io/auth-signin: "OIDC_AUTH_SIGNIN_PLACEHOLDER"
+    nginx.ingress.kubernetes.io/auth-response-headers: "Authorization,X-Auth-Request-User,X-Auth-Request-Email"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: HOSTNAME_REPLACED_BY_OVERLAY
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  name: http

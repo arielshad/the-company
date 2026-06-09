@@ -1,0 +1,43 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: brain
+  namespace: companyos-system
+  labels:
+    app.kubernetes.io/name: brain
+    app.kubernetes.io/part-of: companyos
+    app.kubernetes.io/managed-by: argocd
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: brain
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow from gateway only
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gateway
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow from connectors (ingestion worker)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: connectors
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # Allow DNS
+    - ports:
+        - protocol: UDP
+          port: 53
+    # Allow to platform namespace (Postgres/pgvector, Redis, Qdrant)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: companyos-platform

@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skill-registry
+  namespace: companyos-system
+  labels:
+    app.kubernetes.io/name: skill-registry
+    app.kubernetes.io/part-of: companyos
+    app.kubernetes.io/managed-by: argocd
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: skill-registry
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: skill-registry
+        app.kubernetes.io/part-of: companyos
+        app.kubernetes.io/managed-by: argocd
+    spec:
+      serviceAccountName: skill-registry
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: skill-registry
+          image: ghcr.io/companyos/skill-registry:REPLACED_BY_OVERLAY
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          envFrom:
+            - configMapRef:
+                name: skill-registry-config
+            - secretRef:
+                name: skill-registry-secrets
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3

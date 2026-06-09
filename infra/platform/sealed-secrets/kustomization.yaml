@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# The Sealed Secrets controller installs into kube-system by upstream default.
+# It MUST be present before any SealedSecret can be decrypted, so its Argo
+# Application is sync-wave "-1" (ahead of all other platform deps).
+resources:
+  # Pin to a released version; bump deliberately. The controller's private key
+  # is cluster-resident and backed up out-of-band (DR runbook T07.6).
+  - https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.27.1/controller.yaml

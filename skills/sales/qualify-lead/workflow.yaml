@@ -1,0 +1,43 @@
+# Optional backing workflow for the qualify-lead skill, in the CompanyOS DSL
+# (docs/03-data-models.md §6). The skill can run directly or via this workflow.
+id: wf_qualify_lead
+name: Qualify Lead
+version: 1
+state: published
+trigger:
+  id: t1
+  type: trigger
+  trigger: manual            # also invokable as skill.run via MCP
+nodes:
+  - id: context
+    type: brain_search
+    query: "{{input.company}} {{input.email}} ICP fit prior interactions"
+    topK: 8
+  - id: score
+    type: agent
+    agent: { role: Sales, model: claude-sonnet-4-6, budgetUsd: 0.15 }
+    goal: Score the lead against ICP; output decision, score, confidence, rationale, citations
+    outputSchema: QualifyLeadResult
+  - id: gate
+    type: eval
+    policy: { evals: [source_coverage, factuality], gate: block, thresholds: { source_coverage: 0.7, factuality: 0.8 } }
+  - id: crm
+    type: task
+    action: crm_update
+    target: crm
+  - id: slack
+    type: notify
+    channel: slack
+    to: "#sales-leads"
+  - id: done
+    type: end
+edges:
+  - { from: t1, to: context }
+  - { from: context, to: score }
+  - { from: score, to: gate }
+  - { from: gate, to: crm }
+  - { from: crm, to: slack }
+  - { from: slack, to: done }
+permissions: { runAs: agent, requiredRelations: [brain#reader] }
+memoryWritePolicy: { allowedTypes: [customer_fact], minConfidence: 0.6 }
+evalPolicy: { evals: [source_coverage, factuality], gate: block, thresholds: { source_coverage: 0.7, factuality: 0.8 } }

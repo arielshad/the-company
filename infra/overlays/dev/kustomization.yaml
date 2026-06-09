@@ -1,0 +1,71 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: companyos-system
+
+commonLabels:
+  app.kubernetes.io/environment: dev
+
+resources:
+  - ../../base/web
+  - ../../base/gateway
+  - ../../base/agent-registry
+  - ../../base/brain
+  - ../../base/workflow-engine
+  - ../../base/skill-registry
+  - ../../base/governance
+  - ../../base/connectors
+  - ../../base/eval-service
+
+images:
+  - name: ghcr.io/companyos/web
+    newTag: dev
+  - name: ghcr.io/companyos/gateway
+    newTag: dev
+  - name: ghcr.io/companyos/agent-registry
+    newTag: dev
+  - name: ghcr.io/companyos/brain
+    newTag: dev
+  - name: ghcr.io/companyos/workflow-engine
+    newTag: dev
+  - name: ghcr.io/companyos/skill-registry
+    newTag: dev
+  - name: ghcr.io/companyos/governance
+    newTag: dev
+  - name: ghcr.io/companyos/connectors
+    newTag: dev
+  - name: ghcr.io/companyos/eval-service
+    newTag: dev
+
+patches:
+  # Patch all Deployments: reduce replicas to 1 and lower resources.
+  # JSON6902 (op list) so it is container-name-agnostic — a strategic-merge
+  # patch keyed on container name would append a phantom container instead.
+  - target:
+      kind: Deployment
+      labelSelector: "app.kubernetes.io/part-of=companyos"
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi
+
+  # Patch all HPAs: reduce minReplicas to 1
+  - patch: |-
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: not-used
+      spec:
+        minReplicas: 1
+    target:
+      kind: HorizontalPodAutoscaler
+      labelSelector: "app.kubernetes.io/part-of=companyos"
