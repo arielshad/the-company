@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:server": "esbuild src/server/serve.ts --bundle --platform=node --format=esm --outfile=server-dist/serve.mjs",
     "preview": "vite preview",
     "start": "tsx src/server/serve.ts"
   },
@@ -35,6 +36,7 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "esbuild": "^0.24.0",
     "jsdom": "^25.0.1",
     "vite": "^5.4.21"
   }

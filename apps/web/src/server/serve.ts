@@ -10,7 +10,9 @@ import { route } from "../index.js";
  * the Kubernetes Deployment (infra/base/web).
  */
 const port = Number(process.env.PORT ?? 3000);
-const dist = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist");
+// In the container the static bundle is mounted at WEB_DIST; in dev it sits at
+// apps/web/dist relative to this source file.
+const dist = process.env.WEB_DIST ?? join(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist");
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
