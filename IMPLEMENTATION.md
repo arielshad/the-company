@@ -8,11 +8,36 @@ evidence-based methodology of `docs/05-development-methodology.md`.
 
 ```bash
 pnpm install
-pnpm typecheck          # tsc --noEmit across the workspace
-pnpm test               # 91 tests, 13 suites
-pnpm test:coverage      # enforces coverage gate (docs/07)
-pnpm web:dev            # runs the web BFF on :3000 (/healthz, /api/builder/*)
+pnpm typecheck                      # node code (tsc --noEmit)
+pnpm --filter @companyos/web exec tsc -p tsconfig.json --noEmit   # web (React) typecheck
+pnpm test                           # 100 tests, 15 suites
+pnpm test:coverage                  # enforces coverage gate (docs/07)
+
+# Web UI (comprehensive React app with guided onboarding)
+pnpm --filter @companyos/web dev    # Vite dev server on :5173
+pnpm --filter @companyos/web build  # production bundle -> apps/web/dist
+pnpm --filter @companyos/web start  # serves the built SPA + BFF on :3000
 ```
+
+## Web UI (apps/web)
+
+A full single-page app (Vite + React + React Flow) that drives the **real**
+in-browser platform — not mocks. `src/app/lib/platform.ts` instantiates the
+actual services (auth, brain, governance, workflow engine, gateway, agent &
+skill registries, connectors), seeds a demo org, and the UI operates them live.
+
+- **Guided onboarding** (`onboarding/Onboarding.tsx`): a 7-step tour ending in a
+  *live* run of the flagship workflow — trigger → eval gate → **approval
+  pause** → approve → memory write → Jira task → Slack — inside the wizard.
+- **Pages**: Dashboard (getting-started checklist + activity), Company Brain
+  (permission-aware search with provenance), Connectors, Agents (CRUD, budgets,
+  org chart, live task runs), Workflows (React Flow builder: palette, validate
+  against DSL invariants, run), Skills (eval-gated promotion), Governance
+  (approvals, audit log, budgets), Settings.
+- Served by the existing Node BFF (`src/server/serve.ts`) on :3000 (static SPA +
+  `/api/*` + `/healthz`/`/readyz`), matching the `infra/base/web` Deployment.
+- Tests: `src/app/web.test.tsx` (onboarding flow + page render via
+  Testing Library + jsdom).
 
 All tests run offline & deterministically — LLM agents, model judges, and
 external backends (Postgres/OpenFGA/Qdrant/providers) are behind interfaces with
