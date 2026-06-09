@@ -21,7 +21,7 @@ import { type AuditSink, makeAuditRecord } from "@companyos/telemetry";
  * the retrieval interface is backend-agnostic (pgvector/Qdrant in prod, ADR-0004).
  */
 
-interface BrainItem {
+export interface BrainItem {
   id: string;
   orgId: string;
   kind: "doc" | "memory";
@@ -33,8 +33,48 @@ interface BrainItem {
   confidence: number;
   timestamp: string;
   visibility: string[];
+  relatedPeople?: string[];
   supersededBy?: string;
   expiresAt?: string;
+}
+
+export interface MemoryStore {
+  getBySource(orgId: string, connector: string, externalId: string): BrainItem | undefined;
+  get(id: string): BrainItem | undefined;
+  insert(item: BrainItem): void;
+  update(item: BrainItem): void;
+  allByOrg(orgId: string): BrainItem[];
+}
+
+export class InMemoryMemoryStore implements MemoryStore {
+  private items: BrainItem[] = [];
+  private bySource = new Map<string, string>(); // orgId|connector|externalId -> itemId
+
+  getBySource(orgId: string, connector: string, externalId: string): BrainItem | undefined {
+    const key = `${orgId}|${connector}|${externalId}`;
+    const id = this.bySource.get(key);
+    if (id === undefined) return undefined;
+    return this.items.find((i) => i.id === id);
+  }
+
+  get(id: string): BrainItem | undefined {
+    return this.items.find((i) => i.id === id);
+  }
+
+  insert(item: BrainItem): void {
+    this.items.push(item);
+    const key = `${item.orgId}|${item.source.connector}|${item.source.externalId}`;
+    this.bySource.set(key, item.id);
+  }
+
+  update(item: BrainItem): void {
+    const idx = this.items.findIndex((i) => i.id === item.id);
+    if (idx !== -1) this.items[idx] = item;
+  }
+
+  allByOrg(orgId: string): BrainItem[] {
+    return this.items.filter((i) => i.orgId === orgId);
+  }
 }
 
 export interface IngestInput {
@@ -104,12 +144,10 @@ function cosine(a: Map<string, number>, b: Map<string, number>): number {
 }
 
 export class BrainService {
-  private items: BrainItem[] = [];
-  private bySource = new Map<string, string>(); // orgId|connector|externalId -> itemId
-
   constructor(
     private authz: AuthzEngine,
-    private audit?: AuditSink
+    private audit?: AuditSink,
+    private store: MemoryStore = new InMemoryMemoryStore()
   ) {}
 
   private brainObject(orgId: string): string {
@@ -126,16 +164,15 @@ export class BrainService {
   }
 
   ingest(input: IngestInput): IngestResult {
-    const key = `${input.orgId}|${input.source.connector}|${input.source.externalId}`;
     const ingestionRunId = newId("run");
-    const existing = this.bySource.get(key);
+    const existing = this.store.getBySource(input.orgId, input.source.connector, input.source.externalId);
     if (existing) {
       // idempotent re-ingest (NFR-3): update content in place, no duplicate
-      const it = this.items.find((i) => i.id === existing)!;
-      it.content = input.content;
-      it.title = input.title;
-      it.sourceAcl = input.sourceAcl;
-      return { ingestionRunId, itemId: existing, deduped: true };
+      existing.content = input.content;
+      existing.title = input.title;
+      existing.sourceAcl = input.sourceAcl;
+      this.store.update(existing);
+      return { ingestionRunId, itemId: existing.id, deduped: true };
     }
     const item: BrainItem = {
       id: newId("mem"),
@@ -150,8 +187,7 @@ export class BrainService {
       timestamp: new Date().toISOString(),
       visibility: []
     };
-    this.items.push(item);
-    this.bySource.set(key, item.id);
+    this.store.insert(item);
     this.register(item);
     return { ingestionRunId, itemId: item.id, deduped: false };
   }
@@ -162,9 +198,8 @@ export class BrainService {
     const qBag = bag(qTokens);
     const qSet = new Set(qTokens);
     const now = Date.now();
-    const candidates = this.items.filter(
+    const candidates = this.store.allByOrg(opts.orgId).filter(
       (i) =>
-        i.orgId === opts.orgId &&
         !i.supersededBy &&
         (!i.expiresAt || Date.parse(i.expiresAt) > now)
     );
@@ -243,10 +278,13 @@ export class BrainService {
       visibility: input.visibility ?? []
     };
     if (input.supersedes) {
-      const prev = this.items.find((i) => i.id === input.supersedes);
-      if (prev) prev.supersededBy = item.id;
+      const prev = this.store.get(input.supersedes);
+      if (prev) {
+        prev.supersededBy = item.id;
+        this.store.update(prev);
+      }
     }
-    this.items.push(item);
+    this.store.insert(item);
     this.register(item);
     return MemoryObject.parse({
       id: item.id,
@@ -265,18 +303,21 @@ export class BrainService {
   }
 
   expire(id: string): void {
-    const it = this.items.find((i) => i.id === id);
-    if (it) it.expiresAt = new Date(Date.now() - 1000).toISOString();
+    const it = this.store.get(id);
+    if (it) {
+      it.expiresAt = new Date(Date.now() - 1000).toISOString();
+      this.store.update(it);
+    }
   }
 
   /** Data lineage: trace a memory back to its source (FR-8.6). */
   lineage(id: string): { id: string; source: SourceRef } | undefined {
-    const it = this.items.find((i) => i.id === id);
+    const it = this.store.get(id);
     return it ? { id: it.id, source: it.source } : undefined;
   }
 
   count(orgId: string): number {
-    return this.items.filter((i) => i.orgId === orgId && !i.supersededBy).length;
+    return this.store.allByOrg(orgId).filter((i) => !i.supersededBy).length;
   }
 
   private recordAudit(p: Principal, orgId: string, action: string, decision: "allow" | "deny", resourceId = orgId) {

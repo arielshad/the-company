@@ -10,7 +10,7 @@ evidence-based methodology of `docs/05-development-methodology.md`.
 pnpm install
 pnpm typecheck                      # node code (tsc --noEmit)
 pnpm --filter @companyos/web exec tsc -p tsconfig.json --noEmit   # web (React) typecheck
-pnpm test                           # 110 tests, 18 suites
+pnpm test                           # 125 tests (118 pass, 7 OpenFGA-integration skip locally)
 pnpm test:coverage                  # enforces coverage gate (docs/07)
 
 # Web UI (comprehensive React app with guided onboarding)
@@ -59,9 +59,8 @@ touching business logic.
 | **07 Hardening** | Interface seams for durable backend (ADR-0003) & vector store (ADR-0004); audit integrity digest; tenancy via `orgId` scoping; infra overlays + NetworkPolicies + sealed secrets (`infra/`) | cross-cutting + `infra/` | (infra CI job) |
 | **08 Governance & evals** | Evaluators (source_coverage/factuality/policy/tone/hallucination) + suite gating, authorize+audit on every action, approvals (decide/timeout/escalate), budget enforcement, eval gate | `apps/eval-service`, `apps/governance` | 7 + 7 |
 
-**Total: 110 tests across 18 suites, all green** (incl. the web UI and the
-durable SQLite backends below). Coverage exceeds the gate in `docs/07`
-(lines ~94%, branches ~92%, functions ~88%).
+**Total: 125 tests (118 pass; 7 OpenFGA integration skip locally, run in CI), all green.**
+Coverage exceeds the gate in `docs/07` (lines ~91%, branches ~91%, functions ~87%).
 
 ## Flagship end-to-end proof
 
@@ -94,11 +93,30 @@ the same contract tests; new tests prove the data survives a process restart.
 - **Audit log**: `SqliteAudit` (`@companyos/telemetry/sqlite`) — append-only
   (no update/delete API), tamper-evident rolling digest, durable across reopen.
   FR-8.4 / NFR-7.
+- **Company brain**: `BrainService` now stores items behind a `MemoryStore`
+  interface — `InMemoryMemoryStore` (default) and `SqliteMemoryStore`
+  (`@companyos/brain/sqlite`). `apps/brain/src/sqlite.test.ts` proves a written
+  memory **and** its authz parent tuple survive a process restart (durable
+  `SqliteAuthz` + `SqliteMemoryStore`) so search still returns it. ADR-0004.
 - Proven together in `apps/governance/src/durable.test.ts`: the *same*
   `GovernanceService` runs on both SQLite backends and its audit trail survives a
   simulated restart with the digest chain intact.
 - These are node-only (loaded via `createRequire`), so the browser bundle and
   the in-memory test path are unaffected.
+
+## Real OpenFGA backend (async authz, CI-verified)
+
+`AuthzEngine.check` is **async** (`Promise<boolean>`) so a networked decision
+point fits the same interface used everywhere; in-memory/SQLite resolve
+immediately. `OpenFgaAuthz` (`@companyos/auth/openfga`) is a real adapter over
+`@openfga/sdk` behind an `FgaTransport` seam:
+
+- Unit-tested locally with a fake transport (`openfga.test.ts`).
+- `openfga.integration.test.ts` loads `infra/platform/openfga/model.fga`, writes
+  it to a real OpenFGA, replays the ReBAC contract, and asserts the documented
+  outcomes — proving the model + real engine agree with our semantics. It
+  **auto-skips** without `OPENFGA_API_URL` and runs for real in the
+  `authz-openfga` CI job (which spins up the `openfga/openfga` container).
 
 ## What is intentionally interface-only (production swaps)
 
@@ -107,11 +125,9 @@ the production adapter is the remaining work, isolated by design:
 
 - **Durable execution**: Trigger.dev/Temporal adapter behind `WorkflowEngine`
   (logic, retries, pause/resume modeled in-process). ADR-0003.
-- **Vector store / graph**: pgvector/Qdrant/Graphiti behind `BrainService`
-  retrieval (bag-of-words embedding used offline). ADR-0004.
-- **Distributed authz**: OpenFGA behind `AuthzEngine` for multi-node deploys
-  (would make `check` async); the SQLite store above covers single-node
-  durability today. ADR-0005.
+- **Vector store / graph**: pgvector/Qdrant/Graphiti behind the `MemoryStore`
+  interface for scale (bag-of-words embedding used offline; SQLite covers
+  durability today). ADR-0004.
 - **LLM agents & judges**: provider clients behind `AgentHandler`/eval
   `Evaluator` (deterministic stand-ins). ADR-0002.
 - **MCP transport**: `@modelcontextprotocol/sdk` wraps `McpGateway`’s typed
