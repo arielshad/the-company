@@ -28,6 +28,47 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.20)
 
+  apps/brain:
+    dependencies:
+      '@companyos/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
+      '@companyos/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
+      '@companyos/telemetry':
+        specifier: workspace:*
+        version: link:../../packages/telemetry
+    devDependencies:
+      '@companyos/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
+
+  apps/eval-service:
+    dependencies:
+      '@companyos/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
+
+  apps/governance:
+    dependencies:
+      '@companyos/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
+      '@companyos/eval-service':
+        specifier: workspace:*
+        version: link:../eval-service
+      '@companyos/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
+      '@companyos/telemetry':
+        specifier: workspace:*
+        version: link:../../packages/telemetry
+    devDependencies:
+      '@companyos/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
+
   packages/auth: {}
 
   packages/dsl:

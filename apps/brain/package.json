@@ -1,0 +1,15 @@
+{
+  "name": "@companyos/brain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@companyos/schemas": "workspace:*",
+    "@companyos/auth": "workspace:*",
+    "@companyos/telemetry": "workspace:*"
+  },
+  "devDependencies": {
+    "@companyos/testing": "workspace:*"
+  }
+}
