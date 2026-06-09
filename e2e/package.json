@@ -1,0 +1,19 @@
+{
+  "name": "@companyos/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@companyos/auth": "workspace:*",
+    "@companyos/brain": "workspace:*",
+    "@companyos/connectors": "workspace:*",
+    "@companyos/dsl": "workspace:*",
+    "@companyos/gateway": "workspace:*",
+    "@companyos/governance": "workspace:*",
+    "@companyos/schemas": "workspace:*",
+    "@companyos/skill-registry": "workspace:*",
+    "@companyos/telemetry": "workspace:*",
+    "@companyos/testing": "workspace:*",
+    "@companyos/workflow-engine": "workspace:*"
+  }
+}

@@ -45,6 +45,13 @@ export const EXTERNAL_EFFECT_NODES: NodeType[] = [
   "memory_write"
 ];
 
+/**
+ * Outbound-effect nodes that must be gated by an eval when evalPolicy.gate=block
+ * (invariant 5). Generic `tool` nodes are excluded: they may be reads/transforms
+ * and are independently authorized at the gateway on every call.
+ */
+export const GATED_EFFECT_NODES: NodeType[] = ["task", "notify", "memory_write"];
+
 export const WorkflowNode = z
   .object({
     id: z.string().min(1),
@@ -265,7 +272,7 @@ export function validateWorkflow(
       allNodes(wf).filter((n) => n.type === "eval").map((n) => n.id)
     );
     for (const n of allNodes(wf)) {
-      if (EXTERNAL_EFFECT_NODES.includes(n.type) && reachable.has(n.id)) {
+      if (GATED_EFFECT_NODES.includes(n.type) && reachable.has(n.id)) {
         const anc = ancestorsOf(wf, n.id);
         if (![...anc].some((a) => evalNodes.has(a))) {
           errors.push({

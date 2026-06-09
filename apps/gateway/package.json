@@ -1,0 +1,20 @@
+{
+  "name": "@companyos/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@companyos/auth": "workspace:*",
+    "@companyos/brain": "workspace:*",
+    "@companyos/governance": "workspace:*",
+    "@companyos/workflow-engine": "workspace:*",
+    "@companyos/skill-registry": "workspace:*"
+  },
+  "devDependencies": {
+    "@companyos/telemetry": "workspace:*",
+    "@companyos/testing": "workspace:*",
+    "@companyos/schemas": "workspace:*",
+    "@companyos/dsl": "workspace:*"
+  }
+}

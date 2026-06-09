@@ -28,6 +28,15 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.20)
 
+  apps/agent-registry:
+    dependencies:
+      '@companyos/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
+      '@companyos/telemetry':
+        specifier: workspace:*
+        version: link:../../packages/telemetry
+
   apps/brain:
     dependencies:
       '@companyos/auth':
@@ -44,11 +53,55 @@ importers:
         specifier: workspace:*
         version: link:../../packages/testing
 
+  apps/connectors:
+    dependencies:
+      '@companyos/dsl':
+        specifier: workspace:*
+        version: link:../../packages/dsl
+      '@companyos/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
+    devDependencies:
+      '@companyos/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
+
   apps/eval-service:
     dependencies:
       '@companyos/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas
+
+  apps/gateway:
+    dependencies:
+      '@companyos/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
+      '@companyos/brain':
+        specifier: workspace:*
+        version: link:../brain
+      '@companyos/governance':
+        specifier: workspace:*
+        version: link:../governance
+      '@companyos/skill-registry':
+        specifier: workspace:*
+        version: link:../skill-registry
+      '@companyos/workflow-engine':
+        specifier: workspace:*
+        version: link:../workflow-engine
+    devDependencies:
+      '@companyos/dsl':
+        specifier: workspace:*
+        version: link:../../packages/dsl
+      '@companyos/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
+      '@companyos/telemetry':
+        specifier: workspace:*
+        version: link:../../packages/telemetry
+      '@companyos/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
 
   apps/governance:
     dependencies:
@@ -68,6 +121,85 @@ importers:
       '@companyos/testing':
         specifier: workspace:*
         version: link:../../packages/testing
+
+  apps/skill-registry:
+    dependencies:
+      '@companyos/eval-service':
+        specifier: workspace:*
+        version: link:../eval-service
+      '@companyos/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
+
+  apps/web:
+    dependencies:
+      '@companyos/dsl':
+        specifier: workspace:*
+        version: link:../../packages/dsl
+
+  apps/workflow-engine:
+    dependencies:
+      '@companyos/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
+      '@companyos/brain':
+        specifier: workspace:*
+        version: link:../brain
+      '@companyos/dsl':
+        specifier: workspace:*
+        version: link:../../packages/dsl
+      '@companyos/governance':
+        specifier: workspace:*
+        version: link:../governance
+      '@companyos/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
+      '@companyos/telemetry':
+        specifier: workspace:*
+        version: link:../../packages/telemetry
+    devDependencies:
+      '@companyos/connectors':
+        specifier: workspace:*
+        version: link:../connectors
+      '@companyos/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
+
+  e2e:
+    dependencies:
+      '@companyos/auth':
+        specifier: workspace:*
+        version: link:../packages/auth
+      '@companyos/brain':
+        specifier: workspace:*
+        version: link:../apps/brain
+      '@companyos/connectors':
+        specifier: workspace:*
+        version: link:../apps/connectors
+      '@companyos/dsl':
+        specifier: workspace:*
+        version: link:../packages/dsl
+      '@companyos/gateway':
+        specifier: workspace:*
+        version: link:../apps/gateway
+      '@companyos/governance':
+        specifier: workspace:*
+        version: link:../apps/governance
+      '@companyos/schemas':
+        specifier: workspace:*
+        version: link:../packages/schemas
+      '@companyos/skill-registry':
+        specifier: workspace:*
+        version: link:../apps/skill-registry
+      '@companyos/telemetry':
+        specifier: workspace:*
+        version: link:../packages/telemetry
+      '@companyos/testing':
+        specifier: workspace:*
+        version: link:../packages/testing
+      '@companyos/workflow-engine':
+        specifier: workspace:*
+        version: link:../apps/workflow-engine
 
   packages/auth: {}
 

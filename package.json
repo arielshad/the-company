@@ -6,11 +6,11 @@
   "packageManager": "pnpm@10.33.0",
   "engines": { "node": ">=22" },
   "scripts": {
-    "build": "tsc --build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --build --pretty",
-    "lint": "eslint . || true"
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "web:dev": "pnpm --filter @companyos/web start"
   },
   "devDependencies": {
     "typescript": "^5.6.3",
