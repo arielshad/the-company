@@ -1,34 +1,38 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: web
+  name: openfga
   namespace: the-company
   labels:
-    app.kubernetes.io/name: web
+    app.kubernetes.io/name: openfga
     app.kubernetes.io/part-of: the-company
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: web
+      app.kubernetes.io/name: openfga
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: web
+        app.kubernetes.io/name: openfga
         app.kubernetes.io/part-of: the-company
     spec:
-      serviceAccountName: web
+      serviceAccountName: openfga
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: web
-          image: ghcr.io/arielshad/the-company-web:REPLACED_BY_OVERLAY
+        - name: openfga
+          image: openfga/openfga:latest
+          args: ["run"]
           ports:
             - name: http
-              containerPort: 3000
+              containerPort: 8080
+              protocol: TCP
+            - name: grpc
+              containerPort: 8081
               protocol: TCP
           securityContext:
             allowPrivilegeEscalation: false
@@ -43,17 +47,25 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          env:
+            - name: OPENFGA_DATASTORE_ENGINE
+              value: "postgres"
+            - name: OPENFGA_DATASTORE_URI
+              valueFrom:
+                secretKeyRef:
+                  name: the-company-openfga-db
+                  key: OPENFGA_DATASTORE_URI
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 3000
+              port: 8080
             initialDelaySeconds: 15
             periodSeconds: 20
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /readyz
-              port: 3000
+              path: /healthz
+              port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 3

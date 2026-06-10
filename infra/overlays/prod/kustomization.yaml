@@ -1,40 +1,21 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: companyos-system
+namespace: the-company
 
 commonLabels:
   app.kubernetes.io/environment: prod
 
 resources:
+  - ../../base/core
   - ../../base/web
-  - ../../base/gateway
-  - ../../base/agent-registry
-  - ../../base/brain
-  - ../../base/workflow-engine
-  - ../../base/skill-registry
-  - ../../base/governance
-  - ../../base/connectors
-  - ../../base/eval-service
+  - ../../base/openfga
+  - ../../base/external-secrets
 
 images:
-  - name: ghcr.io/companyos/web
+  - name: ghcr.io/arielshad/the-company-core
     newTag: stable
-  - name: ghcr.io/companyos/gateway
-    newTag: stable
-  - name: ghcr.io/companyos/agent-registry
-    newTag: stable
-  - name: ghcr.io/companyos/brain
-    newTag: stable
-  - name: ghcr.io/companyos/workflow-engine
-    newTag: stable
-  - name: ghcr.io/companyos/skill-registry
-    newTag: stable
-  - name: ghcr.io/companyos/governance
-    newTag: stable
-  - name: ghcr.io/companyos/connectors
-    newTag: stable
-  - name: ghcr.io/companyos/eval-service
+  - name: ghcr.io/arielshad/the-company-web
     newTag: stable
 
 patches:
@@ -43,7 +24,7 @@ patches:
   # patch keyed on container name would append a phantom container instead.
   - target:
       kind: Deployment
-      labelSelector: "app.kubernetes.io/part-of=companyos"
+      labelSelector: "app.kubernetes.io/part-of=the-company"
     patch: |-
       - op: replace
         path: /spec/replicas
@@ -58,7 +39,7 @@ patches:
             cpu: 1000m
             memory: 1Gi
 
-  # Prod: ensure all HPAs minReplicas: 3
+  # Prod: ensure all HPAs minReplicas: 3 with higher maxReplicas
   - patch: |-
       apiVersion: autoscaling/v2
       kind: HorizontalPodAutoscaler
@@ -69,4 +50,4 @@ patches:
         maxReplicas: 20
     target:
       kind: HorizontalPodAutoscaler
-      labelSelector: "app.kubernetes.io/part-of=companyos"
+      labelSelector: "app.kubernetes.io/part-of=the-company"

@@ -1,26 +1,41 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: web
-  namespace: companyos-system
+  name: the-company
+  namespace: the-company
   labels:
     app.kubernetes.io/name: web
-    app.kubernetes.io/part-of: companyos
-    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: the-company
   annotations:
-    nginx.ingress.kubernetes.io/auth-url: "OIDC_AUTH_URL_PLACEHOLDER"
-    nginx.ingress.kubernetes.io/auth-signin: "OIDC_AUTH_SIGNIN_PLACEHOLDER"
-    nginx.ingress.kubernetes.io/auth-response-headers: "Authorization,X-Auth-Request-User,X-Auth-Request-Email"
+    # MCP uses SSE (Server-Sent Events) — bump timeouts and disable buffering
+    # so events flush to the client immediately (mirrors shep-app ingress).
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
 spec:
   ingressClassName: nginx
   rules:
-    - host: HOSTNAME_REPLACED_BY_OVERLAY
+    - host: company.shep.bot
       http:
         paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: core
+                port:
+                  number: 80
+          - path: /mcp
+            pathType: Prefix
+            backend:
+              service:
+                name: core
+                port:
+                  number: 80
           - path: /
             pathType: Prefix
             backend:
               service:
                 name: web
                 port:
-                  name: http
+                  number: 80

@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: core
+  namespace: the-company
+  labels:
+    app.kubernetes.io/name: core
+    app.kubernetes.io/part-of: the-company
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: core
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: core
+        app.kubernetes.io/part-of: the-company
+    spec:
+      serviceAccountName: core
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: migrate
+          image: ghcr.io/arielshad/the-company-core:REPLACED_BY_OVERLAY
+          command: ["node", "/app/dist/migrate.mjs"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: the-company-db
+                  key: DATABASE_URL
+      containers:
+        - name: core
+          image: ghcr.io/arielshad/the-company-core:REPLACED_BY_OVERLAY
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: the-company-db
+                  key: DATABASE_URL
+            - name: AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: the-company-auth
+                  key: AUTH_SECRET
+            - name: AUTH_KEYCLOAK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: the-company-auth
+                  key: AUTH_KEYCLOAK_SECRET
+            - name: AUTH_KEYCLOAK_ISSUER
+              value: "https://auth.shep.bot/realms/the-company"
+            - name: AUTH_KEYCLOAK_ID
+              value: "the-company-web"
+            - name: APP_URL
+              value: "https://company.shep.bot"
+            - name: OPENFGA_API_URL
+              value: "http://openfga:8080"
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: the-company-ai
+                  key: ANTHROPIC_API_KEY
+            - name: OPENFGA_STORE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: the-company-openfga
+                  key: OPENFGA_STORE_ID
+                  optional: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3

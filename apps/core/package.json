@@ -1,0 +1,40 @@
+{
+  "name": "@companyos/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/platform.ts" },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "build:server": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=server-dist/core.mjs --packages=external",
+    "migrate": "tsx src/db/migrate.ts"
+  },
+  "dependencies": {
+    "@companyos/agent-registry": "workspace:*",
+    "@companyos/auth": "workspace:*",
+    "@companyos/brain": "workspace:*",
+    "@companyos/connectors": "workspace:*",
+    "@companyos/dsl": "workspace:*",
+    "@companyos/eval-service": "workspace:*",
+    "@companyos/gateway": "workspace:*",
+    "@companyos/governance": "workspace:*",
+    "@companyos/schemas": "workspace:*",
+    "@companyos/skill-registry": "workspace:*",
+    "@companyos/telemetry": "workspace:*",
+    "@companyos/workflow-engine": "workspace:*",
+    "@anthropic-ai/sdk": "^0.40.1",
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@fastify/cors": "^10.0.2",
+    "fastify": "^5.2.1",
+    "jose": "^5.9.6",
+    "pg": "^8.13.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@companyos/testing": "workspace:*",
+    "@types/pg": "^8.11.10",
+    "esbuild": "^0.24.0",
+    "tsx": "^4.19.2"
+  }
+}
