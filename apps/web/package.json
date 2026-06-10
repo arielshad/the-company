@@ -3,9 +3,41 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
-  "scripts": { "start": "tsx src/serve.ts" },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:server": "esbuild src/server/serve.ts --bundle --platform=node --format=esm --outfile=server-dist/serve.mjs",
+    "preview": "vite preview",
+    "start": "tsx src/server/serve.ts"
+  },
   "dependencies": {
-    "@companyos/dsl": "workspace:*"
+    "@companyos/agent-registry": "workspace:*",
+    "@companyos/auth": "workspace:*",
+    "@companyos/brain": "workspace:*",
+    "@companyos/connectors": "workspace:*",
+    "@companyos/dsl": "workspace:*",
+    "@companyos/eval-service": "workspace:*",
+    "@companyos/gateway": "workspace:*",
+    "@companyos/governance": "workspace:*",
+    "@companyos/schemas": "workspace:*",
+    "@companyos/skill-registry": "workspace:*",
+    "@companyos/telemetry": "workspace:*",
+    "@companyos/workflow-engine": "workspace:*",
+    "@xyflow/react": "^12.3.5",
+    "lucide-react": "^0.460.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "esbuild": "^0.24.0",
+    "jsdom": "^25.0.1",
+    "vite": "^5.4.21"
   }
 }

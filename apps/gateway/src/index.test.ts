@@ -19,14 +19,14 @@ function setup() {
 }
 
 describe("McpGateway — authn & policy-filtered catalog (FR-7.2/7.3)", () => {
-  it("admin sees brain.write; plain reader does not", () => {
+  it("admin sees brain.write; plain reader does not", async () => {
     const { gateway } = setup();
     const admin = gateway.authenticate({ sub: "alice", org_id: ORG, realm_access: { roles: ["admin"] } });
     // alice is org admin in seedAcme → writer
-    expect(gateway.listTools(admin).map((t) => t.name)).toContain("brain.write");
+    expect((await gateway.listTools(admin)).map((t) => t.name)).toContain("brain.write");
 
     const stranger = gateway.authenticate({ sub: "zzz", org_id: ORG, realm_access: { roles: [] } });
-    expect(gateway.listTools(stranger)).toHaveLength(0); // not a member of acme
+    expect(await gateway.listTools(stranger)).toHaveLength(0); // not a member of acme
   });
 });
 

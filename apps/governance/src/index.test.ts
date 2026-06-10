@@ -10,14 +10,14 @@ function make() {
 }
 
 describe("authorize", () => {
-  it("allows a writer and audits allow", () => {
+  it("allows a writer and audits allow", async () => {
     const { gov, audit } = make();
-    expect(gov.authorize(alice, "writer", `brain:${ORG}`, "memory.write")).toBe(true);
+    expect(await gov.authorize(alice, "writer", `brain:${ORG}`, "memory.write")).toBe(true);
     expect(audit.list(ORG).some((a) => a.decision === "allow")).toBe(true);
   });
-  it("denies and audits deny", () => {
+  it("denies and audits deny", async () => {
     const { gov, audit } = make();
-    expect(gov.authorize(bob, "writer", `brain:${ORG}`, "memory.write")).toBe(false);
+    expect(await gov.authorize(bob, "writer", `brain:${ORG}`, "memory.write")).toBe(false);
     expect(audit.list(ORG).some((a) => a.decision === "deny")).toBe(true);
   });
 });

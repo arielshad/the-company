@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+**/server-dist
+**/coverage
+**/.turbo
+**/*.tsbuildinfo
+.git
+e2e/artifacts
+**/.env
+**/.env.*
