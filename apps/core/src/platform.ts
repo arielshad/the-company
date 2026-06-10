@@ -11,7 +11,7 @@ import { AgentRegistry } from "@companyos/agent-registry";
 import { SkillRegistry } from "@companyos/skill-registry";
 import { WorkflowEngine, type RunRecord, type AgentHandler } from "@companyos/workflow-engine";
 import { McpGateway } from "@companyos/gateway";
-import { cleanTranscript } from "@companyos/connectors";
+import { cleanTranscript, ConnectorRegistry, ZoomConnector } from "@companyos/connectors";
 import { BudgetTracker, type AuditSink } from "@companyos/telemetry";
 import type { AuthzEngine, Principal } from "@companyos/auth";
 import type { AuditRecord } from "@companyos/schemas";
@@ -52,7 +52,10 @@ export class CorePlatform {
   readonly effects: EffectHandlers;
 
   readonly workflows = new Map<string, Workflow>();
+  readonly connectorRegistry = new ConnectorRegistry();
   connectors: ConnectorInfo[] = [];
+  /** Agent principal workflows run as when triggered by a connector event. */
+  private runAsAgent?: Principal;
 
   constructor(deps: CorePlatformDeps) {
     this.config = deps.config;
@@ -84,6 +87,32 @@ export class CorePlatform {
       getWorkflow: (id) => this.workflows.get(id),
       defaultOrg: this.config.defaultOrg
     });
+    this.connectorRegistry.register(new ZoomConnector());
+  }
+
+  /**
+   * Inbound connector event (webhook/poll): parse → ingest with provenance →
+   * fire any workflow whose trigger matches the emitted trigger kind. The
+   * workflow runs as the configured run-as agent (the only principal granted
+   * `trigger`), never as the unauthenticated webhook caller. Idempotent ingest
+   * (brain.ingest dedupes on connector+externalId) means a duplicate webhook is
+   * safe; effect idempotency (effects.ts) covers the outbound side.
+   */
+  async handleConnectorEvent(name: string, orgId: string, raw: unknown): Promise<{ itemId: string; deduped: boolean; runId?: string; status?: string }> {
+    const result = this.connectorRegistry.handle(name, orgId, raw);
+    const ingest = this.brain.ingest(result.ingest);
+    let runId: string | undefined;
+    let status: string | undefined;
+    const agent = this.runAsAgent;
+    if (agent) {
+      const wf = [...this.workflows.values()].find((w) => w.orgId === orgId && w.trigger.trigger === result.trigger.kind);
+      if (wf) {
+        const run = await this.engine.start(wf, agent, result.trigger.data);
+        runId = run.id;
+        status = run.status;
+      }
+    }
+    return { itemId: ingest.itemId, deduped: ingest.deduped, runId, status };
   }
 
   /** Seed the demo org + flagship workflow (dev/local). */
@@ -91,6 +120,7 @@ export class CorePlatform {
     const org = this.config.defaultOrg;
     const { user, opsAgent } = demoPrincipals(org);
     seedDemoOrg({ org, authz: this.authz, brain: this.brain, agents: this.agents, skills: this.skills, user, opsAgent });
+    this.runAsAgent = opsAgent;
     this.connectors = [
       { name: "notion", label: "Notion", category: "Docs & wiki", connected: true, lastSyncAt: new Date(Date.now() - 36e5).toISOString() },
       { name: "google_drive", label: "Google Drive", category: "Files", connected: true, lastSyncAt: new Date(Date.now() - 72e5).toISOString() },

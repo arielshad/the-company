@@ -66,6 +66,14 @@ export function buildServer(platform: CorePlatform, authenticator: Authenticator
     principal(req);
     return { connectors: platform.listConnectors() };
   });
+  // Inbound connector event (e.g. Zoom transcript). The connector verifies its
+  // own webhook signature (T4.4); the workflow runs as the run-as agent, not the
+  // caller. Returns the ingested item + any workflow run it triggered.
+  app.post("/api/connectors/:name/webhook", async (req) => {
+    const p = principal(req);
+    const name = (req.params as { name: string }).name;
+    return platform.handleConnectorEvent(name, p.orgId, req.body);
+  });
 
   /* ---- agents ---- */
   app.get("/api/agents", async (req) => {
