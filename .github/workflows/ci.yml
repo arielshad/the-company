@@ -49,20 +49,47 @@ jobs:
           done
 
   image:
-    name: image (web container build)
+    name: image (core + web container builds)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+      - name: Build core image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/core/Dockerfile
+          push: false
+          tags: ghcr.io/arielshad/the-company-core:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
       - name: Build web image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: apps/web/Dockerfile
           push: false
-          tags: ghcr.io/companyos/web:ci
+          tags: ghcr.io/arielshad/the-company-web:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  compose-smoke:
+    name: compose-smoke (core boots, /healthz green)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Boot core (sqlite, dev-auth) via compose
+        run: docker compose up -d --build core
+      - name: Wait for /healthz
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/healthz; then echo "core healthy"; exit 0; fi
+            echo "waiting for core... $i/30"; sleep 3
+          done
+          docker compose logs core; exit 1
+      - name: Teardown
+        if: always()
+        run: docker compose down -v
 
   authz-openfga:
     name: authz-openfga (OpenFGA integration)
