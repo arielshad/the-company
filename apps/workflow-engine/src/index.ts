@@ -88,6 +88,17 @@ export class WorkflowEngine {
     return this.runs.get(id);
   }
 
+  /** All runs for an org (run inspector + durable-resume lookups). */
+  listRuns(orgId?: string): RunRecord[] {
+    const all = [...this.runs.values()];
+    return orgId ? all.filter((r) => r.orgId === orgId) : all;
+  }
+
+  /** Find the run currently paused awaiting a given approval (T1.3 resume). */
+  findRunByApproval(approvalId: string): RunRecord | undefined {
+    return [...this.runs.values()].find((r) => r.awaiting?.approvalId === approvalId);
+  }
+
   /** Start a run for a (published) workflow with trigger input. */
   async start(wf: Workflow, principal: Principal, triggerData: Record<string, unknown> = {}): Promise<RunRecord> {
     const v = validateWorkflow(wf);

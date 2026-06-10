@@ -156,15 +156,15 @@ export class CorePlatform {
   }
   async decideApproval(id: string, approver: Principal, decision: "approved" | "rejected", rationale?: string) {
     const approval = this.governance.decide(id, approver, decision, rationale);
-    // Resume the paused run now that the gate is resolved (durable resume = T1.3).
-    const run = [...this.engineRuns()].find((r) => r.awaiting?.approvalId === id);
+    // Resume the paused run now that the gate is resolved (T1.3). The run only
+    // advances past the approval node on "approved"; effects past the gate run
+    // exactly once because resume continues from resumeFrom (not from start).
+    const run = this.engine.findRunByApproval(id);
     if (run) await this.engine.resume(run.id);
     return approval;
   }
-  private engineRuns(): RunRecord[] {
-    // WorkflowEngine has no list API yet; track via gateway-less scan is not
-    // possible, so callers pass the runId. Kept as a seam for T1.3 durable runs.
-    return [];
+  listRuns(orgId: string): RunRecord[] {
+    return this.engine.listRuns(orgId);
   }
 
   auditLog(orgId: string): AuditRecord[] {
