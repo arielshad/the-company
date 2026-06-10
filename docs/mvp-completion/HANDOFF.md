@@ -5,6 +5,39 @@
 
 ---
 
+## 0. RESOLVED in session 2 (2026-06-10) — read `docs/adr/0008` first
+
+Both open decisions below are now **resolved** in
+[`../adr/0008-deployment-architecture-and-platform-boundary.md`](../adr/0008-deployment-architecture-and-platform-boundary.md),
+after gaining read access to `shep-ai/shep-infra`.
+
+- **Decision 1 (architecture) → modular monolith, split-ready.** Confirmed by the
+  platform owner (delegated); cluster is **2 nodes**, scalability goal met by the
+  documented split *path*, not premature decomposition. Split-later criteria in ADR-0008.
+- **Decision 2 (platform) → shep-infra is the platform SoT; the-company ships
+  workloads.** Manifests stay **in the the-company repo**, registered as **one** Argo
+  `Application` in shep-infra. Vector store = **pgvector on the shared CNPG**.
+- **Corrections to this handoff's earlier guesses:** the platform uses
+  **Infisical + External Secrets Operator, NOT sealed-secrets**; there is **no
+  platform OTel backend** (app-owned OTel for MVP); **no OpenFGA/Qdrant/Trigger.dev**
+  on the platform (OpenFGA is app-owned; Qdrant/Trigger.dev deferred). Keycloak +
+  Postgres are **shared** and consumed, not stood up.
+
+What landed in session 2: `docs/adr/0008`, reconciled `01-technical-specs.md` /
+`00-plan-and-model-strategy.md` / `tasks/mvp-backlog.md` (+ new **T0.7** shep-infra
+integration) / `tasks/traceability-matrix.md` / `infra/README.md`, and the shep-infra
+integration glue (Argo `Application`, AppProject source, `setup-the-company.sh`, ESO
+`ClusterSecretStore`) on branch `claude/bold-lamport-djba7w` in both repos.
+
+**Next-session first actions:** execute **T0.7** (apply the shep-infra glue: register
+the Argo app, run `setup-the-company.sh`, enable pgvector on the shared cluster), then
+**T0.1 remaining** (`infra/` reconcile: delete `infra/{argocd,platform,sealed-secrets}`
+duplicates, collapse `base/` to `core`+`web`+`openfga`) → **T0.2** API contract.
+
+The sections below are the original (now-resolved) decision write-ups, kept for context.
+
+---
+
 ## 1. What landed in this PR (done)
 
 | Artifact | Path |

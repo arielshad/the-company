@@ -9,6 +9,28 @@ reference the existing code so the build stays inside established seams.
 
 ---
 
+## Platform boundary (ADR-0008)
+
+These specs run **on the existing `shep-ai/shep-infra` platform** (ArgoCD app-of-apps
+on a 2-node k3s cluster). the-company consumes the platform and ships only its app
+workloads (`core`, `web`, app-owned `openfga`). Concretely, wherever a spec below
+says "Postgres / Keycloak / secrets / ingress," read it as:
+
+- **Postgres + pgvector:** shared CloudNativePG cluster `shep-pg`
+  (`shep-pg-rw.postgres.svc.cluster.local:5432`), a `the_company` role+DB; pgvector
+  enabled on that DB. **Not** a self-hosted Postgres/Qdrant.
+- **Identity:** shared Keycloak at `auth.shep.bot`, realm `the-company` + OIDC client.
+- **Secrets:** Infisical + External Secrets Operator (`ExternalSecret` /
+  `ClusterSecretStore`). **Not** sealed-secrets.
+- **Ingress:** ingress-nginx `Ingress` for `company.shep.bot` (TLS at host Caddy).
+- **Durable execution:** Postgres-native (Trigger.dev deferred). **Observability:**
+  app-owned OTel (no platform collector yet).
+
+`docker compose` remains the **local-dev + e2e** stack only (Postgres/Keycloak/OpenFGA
+in containers); it mirrors the platform contract so the same `core` image runs in both.
+
+---
+
 ## W0 — Server runtime & trust boundary
 
 **Problem:** `apps/web/src/app/lib/platform.ts` instantiates every service in the
@@ -60,8 +82,10 @@ Keycloak + OpenFGA locally and for e2e.
 (`platform.ts:41`); durable SQLite adapters exist but are never instantiated;
 Postgres is absent in code.
 
-**Schema + migrations (T1.1 — Opus):** Postgres with one logical schema per
-concern, `org_id` on every row, **RLS** for tenant isolation (NFR-2). Tables:
+**Schema + migrations (T1.1 — Opus):** the shared CNPG `the_company` DB, one logical
+schema per concern, `org_id` on every row, **RLS** for tenant isolation (NFR-2).
+Migrations assume `CREATE EXTENSION vector` is present (platform-enabled per
+ADR-0008). Tables:
 `orgs`, `users`, `agents`, `skills`, `workflows`, `workflow_versions`, `runs`,
 `run_steps`, `approvals`, `memory_items` (+ `vector` column via pgvector, W3),
 `memory_lineage`, `audit_log` (append-only), `budget_ledger`, `connector_tokens`
@@ -92,24 +116,30 @@ audit survive restart; cross-tenant RLS test passes.
 **Problem:** user hardcoded (`platform.ts:57`), no login, authz runs in the
 browser, single org `"acme"`.
 
-**OIDC login (T2.1 — Opus):** Keycloak realm (IaC exists at
-`infra/platform/keycloak`) with auth-code + PKCE in the web app; `core` validates
-the token, builds the `Principal` from claims via the existing
-`principalFromClaims`, and establishes a server session. No principal is ever
-trusted from the client.
+**OIDC login (T2.1 — Opus):** a `the-company` realm + confidential OIDC client on the
+**shared Keycloak** (`auth.shep.bot`), provisioned by `setup-the-company.sh` in
+shep-infra (mirrors `setup-shep-cloud.sh`). Auth-code + PKCE in the web app; `core`
+validates the token against `https://auth.shep.bot/realms/the-company`, builds the
+`Principal` from claims via the existing `principalFromClaims`, and establishes a
+server session. No principal is ever trusted from the client.
 
 **Server-side authz (T2.2 — Opus):** swap `InMemoryAuthz` → `OpenFgaAuthz`
 (`@companyos/auth/openfga`, already CI-verified) in `core`; every API and MCP
 call runs the existing `governance.authorize(...)` check + audit. **Delete
-browser-side authorization as a boundary.**
+browser-side authorization as a boundary.** OpenFGA runs as an **app-owned**
+Deployment in the `the-company` namespace (the shep-infra platform does not provide
+it) — co-located with `core` to keep the per-check hop in-cluster (ADR-0005/0008).
 
 **Tenancy (T2.3 — Sonnet):** org lifecycle — create org, invite users, map
 Keycloak groups → roles → OpenFGA tuples; seed the demo org through this path
 instead of the hardcoded `seed()`. One real tenant is the MVP bar; self-serve
 multi-tenant is deferred.
 
-**Secrets (T2.4 — Haiku):** sealed-secret wiring for Keycloak/OpenFGA/DB creds
-in `infra/overlays/*` (templates exist).
+**Secrets (T2.4 — Haiku):** **External Secrets Operator** `ExternalSecret`s in the
+`the-company` namespace, sourced from the Infisical `the-company` project via an ESO
+`ClusterSecretStore` (DB DSN, Keycloak client secret, OpenFGA store key, Anthropic API
+key, `ghcr-pull`). Mirrors `apps/za-capital/manifests/external-secrets.yaml` in
+shep-infra. **No sealed-secrets** (not used on this platform — ADR-0008).
 
 **Acceptance:** a real user logs in via Keycloak; a restricted Notion page is
 hidden from an unauthorized user and visible (with provenance) to an authorized
@@ -281,7 +311,10 @@ eval + approval gate → durable write → Slack → MCP retrieval → audit; as
 ### Observability (T6.2 — Sonnet)
 
 OpenTelemetry traces/metrics/logs across `core`; every run/MCP call/webhook
-carries a trace id stored on the run + audit record (NFR-6).
+carries a trace id stored on the run + audit record (NFR-6). The shep-infra platform
+has **no shared OTel backend** yet (ADR-0008), so for the MVP `core` instruments with
+the OTel SDK and exports to an **app-owned** collector (or in-process span store the
+run-inspector reads); a shared platform backend is later work.
 
 ### Security pass (T6.4 — Opus)
 

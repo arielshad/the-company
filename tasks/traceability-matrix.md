@@ -89,12 +89,13 @@ logic with in-memory stand-ins; these cross the four reality boundaries — see
 
 | Task | Req(s) | Tier | Primary test layer | Proof (PR/artifact) |
 | --- | --- | --- | --- | --- |
-| T0.1 Server runtime ADR-0008 (browser→server, trust boundary) | NFR-1, NFR-2, NFR-8 | F | ADR + compose-boot architecture test | _pending_ |
+| T0.1 Server runtime ADR-0008 (browser→server, trust boundary, shep-infra platform boundary) | NFR-1, NFR-2, NFR-8 | F | ADR + compose-boot architecture test | ADR-0008 written (2026-06-10); test _pending_ |
 | T0.2 Typed HTTP API (OpenAPI) replacing platform.ts | FR-6.*, FR-3.*, FR-8.* | O | contract (OpenAPI lint) + unit | _pending_ |
 | T0.3 Fastify API server wiring services in `core` | FR-6.*, FR-8.* | S | integration (API ↔ services) | _pending_ |
 | T0.4 Web app → typed API client; loading/error/empty states | FR-6.1, FR-6.7 | S | e2e (pages render via API) | _pending_ |
-| T0.5 Dockerfiles for core + web; CI build | NFR-8 | H | CI build job | _pending_ |
-| T0.6 docker-compose dev stack (PG/Keycloak/OpenFGA) | NFR-8 | S | compose smoke test | _pending_ |
+| T0.5 Dockerfiles for core + web; CI build+push to ghcr | NFR-8 | H | CI build job | _pending_ |
+| T0.6 docker-compose dev stack (PG/Keycloak/OpenFGA) — local/e2e only | NFR-8 | S | compose smoke test | _pending_ |
+| T0.7 shep-infra integration (Argo app, AppProject src, setup-the-company.sh, ESO store, pgvector) | NFR-1, NFR-8 | O | `kustomize build` + Argo app healthy | _pending_ |
 | T1.1 Postgres schema + migrations; RLS tenancy | NFR-2, NFR-7 | O | integration (RLS cross-tenant) | _pending_ |
 | T1.2 PG-backed Authz + Audit + registries; digest chain | FR-8.4, NFR-7 | S | integration (digest survives restart) | _pending_ |
 | T1.3 Durable workflow runs: persist+resume, idempotent effects | FR-6.5, FR-6.7, NFR-3 | F | integration (crash-mid-approval → resume, no double effects) | _pending_ |
@@ -102,7 +103,7 @@ logic with in-memory stand-ins; these cross the four reality boundaries — see
 | T2.1 Keycloak OIDC login + token validation + Principal | FR-1.1, FR-1.3 | O | e2e + integration (token validation) | _pending_ |
 | T2.2 Server-side OpenFGA authz on every API/MCP call | FR-1.4, FR-7.2, NFR-1 | O | BDD (permission-aware) + `/security-review` | _pending_ |
 | T2.3 Org lifecycle; groups→roles→OpenFGA tuples | FR-1.2, FR-1.3 | S | BDD (role mapping) | _pending_ |
-| T2.4 Sealed secrets for Keycloak/OpenFGA/DB creds | NFR-1 | H | `kustomize build` + scan | _pending_ |
+| T2.4 ESO ExternalSecrets (Keycloak/OpenFGA/DB/Anthropic) from Infisical | NFR-1 | H | `kustomize build` + scan | _pending_ |
 | T3.1 Real AgentHandler (Claude provider) + real budget metering | FR-4.1, FR-4.3, NFR-9 | O | integration (metering from real usage; hard-stop) | _pending_ |
 | T3.2 Flagship extraction prompt + JSON schema (cited) | FR-3.6, FR-8.2 | S | BDD (cited extraction) + eval | _pending_ |
 | T3.3 Real embeddings + pgvector MemoryStore; hybrid + perm filter | FR-3.1, FR-3.2 | O | integration (semantic match; perm filter holds) | _pending_ |
