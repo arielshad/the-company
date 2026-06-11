@@ -1,0 +1,174 @@
+openapi: 3.1.0
+info:
+  title: CompanyOS core API
+  version: 0.1.0
+  description: >
+    The modular-monolith `core` HTTP/JSON API (ADR-0008). Replaces the former
+    in-browser `platform.ts`. Every `/api/*` call is authenticated server-side
+    (Keycloak OIDC bearer; dev bypass via `x-dev-principal`) and authorized +
+    audited server-side. brain/workflow operations route through the MCP gateway
+    so this API and the MCP server share one authz + audit path.
+servers:
+  - url: https://company.shep.bot
+  - url: http://localhost:8080
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      properties: { error: { type: string } }
+    Principal:
+      type: object
+      properties:
+        id: { type: string }
+        type: { type: string, enum: [user, agent, service] }
+        orgId: { type: string }
+        roles: { type: array, items: { type: string } }
+        groups: { type: array, items: { type: string } }
+    SearchHit:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        score: { type: number }
+        source: { type: object }
+    Run:
+      type: object
+      properties:
+        id: { type: string }
+        workflowId: { type: string }
+        status: { type: string, enum: [running, paused, completed, failed] }
+        traceId: { type: string }
+    Approval:
+      type: object
+      properties:
+        id: { type: string }
+        runId: { type: string }
+        nodeId: { type: string }
+        status: { type: string, enum: [pending, approved, rejected, escalated] }
+paths:
+  /healthz:
+    get:
+      summary: Liveness
+      security: []
+      responses: { "200": { description: ok } }
+  /readyz:
+    get:
+      summary: Readiness
+      security: []
+      responses: { "200": { description: ok } }
+  /api/me:
+    get:
+      summary: The authenticated principal (built from OIDC claims server-side)
+      responses:
+        "200":
+          description: principal
+          content: { application/json: { schema: { $ref: "#/components/schemas/Principal" } } }
+        "401": { description: unauthenticated, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  /api/brain/search:
+    post:
+      summary: Permission-aware brain search (via the MCP gateway)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties: { query: { type: string }, topK: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: hits
+          content: { application/json: { schema: { type: object, properties: { hits: { type: array, items: { $ref: "#/components/schemas/SearchHit" } } } } } }
+        "403": { description: forbidden }
+  /api/connectors:
+    get:
+      summary: Connector inventory + health/state
+      responses: { "200": { description: connectors } }
+  /api/agents:
+    get:
+      summary: List agents in the caller's org
+      responses: { "200": { description: agents } }
+    post:
+      summary: Create an agent
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [name], properties: { name: { type: string }, role: { type: string }, goal: { type: string }, managerAgentId: { type: string } } } } }
+      responses: { "201": { description: created } }
+  /api/agents/org-chart:
+    get:
+      summary: Agent org chart
+      responses: { "200": { description: orgChart } }
+  /api/skills:
+    get:
+      summary: List skills (optionally filtered by role)
+      parameters: [{ name: role, in: query, schema: { type: string } }]
+      responses: { "200": { description: skills } }
+  /api/workflows:
+    get:
+      summary: List workflows in org
+      responses: { "200": { description: workflows } }
+    post:
+      summary: Publish a workflow (validated against the DSL invariants)
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [workflow], properties: { workflow: { type: object } } } } } }
+      responses: { "201": { description: published }, "400": { description: invalid } }
+  /api/workflows/{id}:
+    get:
+      summary: Get a workflow
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: workflow }, "404": { description: not found } }
+  /api/workflows/{id}/run:
+    post:
+      summary: Trigger a workflow run (governed via the gateway)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody: { content: { application/json: { schema: { type: object, properties: { data: { type: object } } } } } }
+      responses:
+        "200":
+          description: run started/paused
+          content: { application/json: { schema: { type: object, properties: { runId: { type: string }, status: { type: string } } } } }
+        "403": { description: forbidden }
+  /api/builder/compile:
+    post:
+      summary: Compile a builder canvas to a validated DSL workflow
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [canvas, meta], properties: { canvas: { type: object }, meta: { type: object, required: [id, name], properties: { id: { type: string }, name: { type: string } } } } } } } }
+      responses: { "200": { description: dsl } }
+  /api/runs/{id}:
+    get:
+      summary: Get a run (inspector data)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        "200":
+          description: run
+          content: { application/json: { schema: { type: object, properties: { run: { $ref: "#/components/schemas/Run" } } } } }
+        "404": { description: not found }
+  /api/approvals:
+    get:
+      summary: List pending approvals for the org
+      responses:
+        "200":
+          description: approvals
+          content: { application/json: { schema: { type: object, properties: { approvals: { type: array, items: { $ref: "#/components/schemas/Approval" } } } } } }
+  /api/approvals/{id}/decide:
+    post:
+      summary: Decide an approval (resumes the paused durable run)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [decision], properties: { decision: { type: string, enum: [approved, rejected] }, rationale: { type: string } } } } } }
+      responses: { "200": { description: decided } }
+  /api/audit:
+    get:
+      summary: Append-only audit trail + tamper-evident digest
+      responses: { "200": { description: audit + digest } }
+  /api/budgets:
+    get:
+      summary: Per-agent spend vs cap
+      responses: { "200": { description: budgets } }
+  /mcp:
+    post:
+      summary: MCP server (Streamable HTTP) — external agents over the same authz+audit
+      responses: { "200": { description: MCP JSON-RPC } }

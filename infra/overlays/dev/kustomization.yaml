@@ -1,49 +1,30 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: companyos-system
+namespace: the-company
 
 commonLabels:
   app.kubernetes.io/environment: dev
 
 resources:
+  - ../../base/core
   - ../../base/web
-  - ../../base/gateway
-  - ../../base/agent-registry
-  - ../../base/brain
-  - ../../base/workflow-engine
-  - ../../base/skill-registry
-  - ../../base/governance
-  - ../../base/connectors
-  - ../../base/eval-service
+  - ../../base/openfga
+  - ../../base/external-secrets
 
 images:
-  - name: ghcr.io/companyos/web
+  - name: ghcr.io/arielshad/the-company-core
     newTag: dev
-  - name: ghcr.io/companyos/gateway
-    newTag: dev
-  - name: ghcr.io/companyos/agent-registry
-    newTag: dev
-  - name: ghcr.io/companyos/brain
-    newTag: dev
-  - name: ghcr.io/companyos/workflow-engine
-    newTag: dev
-  - name: ghcr.io/companyos/skill-registry
-    newTag: dev
-  - name: ghcr.io/companyos/governance
-    newTag: dev
-  - name: ghcr.io/companyos/connectors
-    newTag: dev
-  - name: ghcr.io/companyos/eval-service
+  - name: ghcr.io/arielshad/the-company-web
     newTag: dev
 
 patches:
-  # Patch all Deployments: reduce replicas to 1 and lower resources.
+  # Dev: reduce all Deployments to 1 replica with lower resources.
   # JSON6902 (op list) so it is container-name-agnostic — a strategic-merge
   # patch keyed on container name would append a phantom container instead.
   - target:
       kind: Deployment
-      labelSelector: "app.kubernetes.io/part-of=companyos"
+      labelSelector: "app.kubernetes.io/part-of=the-company"
     patch: |-
       - op: replace
         path: /spec/replicas
@@ -58,7 +39,7 @@ patches:
             cpu: 250m
             memory: 256Mi
 
-  # Patch all HPAs: reduce minReplicas to 1
+  # Dev: reduce all HPAs minReplicas to 1
   - patch: |-
       apiVersion: autoscaling/v2
       kind: HorizontalPodAutoscaler
@@ -68,4 +49,4 @@ patches:
         minReplicas: 1
     target:
       kind: HorizontalPodAutoscaler
-      labelSelector: "app.kubernetes.io/part-of=companyos"
+      labelSelector: "app.kubernetes.io/part-of=the-company"

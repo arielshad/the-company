@@ -1,0 +1,113 @@
+# Local dev + e2e stack (T0.6). Mirrors the shep-infra platform contract so the
+# same `core` image runs locally and on the cluster (ADR-0008).
+#
+#   docker compose up core web            # fast path: sqlite, dev-auth, no deps
+#   docker compose --profile platform up  # full stack: postgres+pgvector, keycloak, openfga
+#
+# The default core/web services boot with PERSISTENCE=sqlite + AUTH_DEV so the
+# app runs end-to-end without external services. Switch core to the real backing
+# services with the `platform` profile + the env overrides shown inline.
+
+services:
+  core:
+    build:
+      context: .
+      dockerfile: apps/core/Dockerfile
+    image: ghcr.io/arielshad/the-company-core:dev
+    environment:
+      PORT: "8080"
+      # Fast path (default): self-contained.
+      PERSISTENCE: ${CORE_PERSISTENCE:-sqlite}
+      AUTHZ_BACKEND: ${CORE_AUTHZ:-sqlite}
+      SQLITE_PATH: /data/core.db
+      AUTH_DEV: ${CORE_AUTH_DEV:-1}
+      DEFAULT_ORG: acme
+      APP_URL: http://localhost:8080
+      # Real-stack overrides (set when using --profile platform):
+      #   CORE_PERSISTENCE=postgres CORE_AUTHZ=openfga CORE_AUTH_DEV=0
+      DATABASE_URL: ${DATABASE_URL:-}
+      OPENFGA_API_URL: ${OPENFGA_API_URL:-}
+      OPENFGA_STORE_ID: ${OPENFGA_STORE_ID:-}
+      AUTH_KEYCLOAK_ISSUER: ${AUTH_KEYCLOAK_ISSUER:-}
+      AUTH_KEYCLOAK_ID: the-company-web
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - core-data:/data
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    image: ghcr.io/arielshad/the-company-web:dev
+    environment:
+      PORT: "3000"
+      CORE_URL: http://core:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      core:
+        condition: service_healthy
+
+  # ---------------- platform profile (real backing services) ----------------
+  postgres:
+    profiles: ["platform"]
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: the_company
+      POSTGRES_PASSWORD: localdev
+      POSTGRES_DB: the_company
+    command: ["postgres", "-c", "max_connections=200"]
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U the_company -d the_company"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  openfga-migrate:
+    profiles: ["platform"]
+    image: openfga/openfga:latest
+    command: ["migrate"]
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://the_company:localdev@postgres:5432/the_company?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  openfga:
+    profiles: ["platform"]
+    image: openfga/openfga:latest
+    command: ["run"]
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://the_company:localdev@postgres:5432/the_company?sslmode=disable
+    ports:
+      - "8081:8080"
+    depends_on:
+      openfga-migrate:
+        condition: service_completed_successfully
+
+  keycloak:
+    profiles: ["platform"]
+    image: quay.io/keycloak/keycloak:26.0
+    command: ["start-dev", "--http-port=8088"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "8088:8088"
+
+volumes:
+  core-data:
+  pg-data:

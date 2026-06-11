@@ -123,3 +123,49 @@ export function cleanTranscript(raw: string): string {
     .filter((l) => l.length > 0)
     .join("\n");
 }
+
+/* ------------------------------------------------------------------ */
+/* Re-exports from SDK v2 and new connectors (T4.1, T4.2, T4.4, T4.5) */
+/* ------------------------------------------------------------------ */
+
+// SDK v2 — types, HMAC utils, and conformance kit
+export type {
+  SourceConnector,
+  TokenRef,
+  OAuthCapable,
+  BackfillCapable,
+  IncrementalCapable,
+  AclCapable,
+  WebhookCapable,
+  WebhookContext,
+  SyncContext,
+  NativePermissions,
+  ConformanceFixtures,
+  ConformanceResult,
+} from "./sdk.js";
+export { hmacSha256Hex, safeCompare, runConformance } from "./sdk.js";
+
+// Notion connector (T4.2)
+export type {
+  NotionConnectorConfig,
+  NotionNativePermissions,
+  NotionPermission,
+  NotionPageResult,
+} from "./notion.js";
+export { NotionConnector, notionPageToIngest, mapNotionAcl } from "./notion.js";
+
+// Zoom connector v2 (T4.4)
+export type {
+  ZoomWebhookPayload,
+  ZoomRecordingFile,
+  ZoomNativePermissions,
+} from "./zoom.js";
+export {
+  ZoomConnector as ZoomConnectorV2,
+  mapZoomAcl,
+  verifyZoomWebhook,
+} from "./zoom.js";
+
+// Slack outbound notifier (T4.5)
+export type { PostMessageParams, PostMessageResult } from "./slack.js";
+export { SlackNotifier } from "./slack.js";

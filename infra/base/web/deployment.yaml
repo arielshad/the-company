@@ -2,11 +2,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: web
-  namespace: companyos-system
+  namespace: the-company
   labels:
     app.kubernetes.io/name: web
-    app.kubernetes.io/part-of: companyos
-    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: the-company
 spec:
   replicas: 2
   selector:
@@ -16,8 +15,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: web
-        app.kubernetes.io/part-of: companyos
-        app.kubernetes.io/managed-by: argocd
+        app.kubernetes.io/part-of: the-company
     spec:
       serviceAccountName: web
       securityContext:
@@ -27,7 +25,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: web
-          image: ghcr.io/companyos/web:REPLACED_BY_OVERLAY
+          image: ghcr.io/arielshad/the-company-web:REPLACED_BY_OVERLAY
           ports:
             - name: http
               containerPort: 3000
@@ -45,11 +43,6 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
-          envFrom:
-            - configMapRef:
-                name: web-config
-            - secretRef:
-                name: web-secrets
           livenessProbe:
             httpGet:
               path: /healthz

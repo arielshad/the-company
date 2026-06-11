@@ -134,7 +134,7 @@ this plan that is exactly four tasks (see §4.3). If in doubt, use Opus and have
 
 | Task | Why Fable, not Opus |
 | --- | --- |
-| **T0.1 — Server runtime & trust-boundary architecture (ADR-0008)** | Decides modular-monolith vs microservice split, where the trust boundary lands, and the API/MCP host shape. **Every** W1–W6 task builds on it; reversing it means re-doing the wiring. Novel for this repo, irreversible, highest blast radius. |
+| **T0.1 — Server runtime & trust-boundary architecture (ADR-0008)** | Decides modular-monolith vs microservice split, where the trust boundary lands, the API/MCP host shape, **and the shep-infra platform boundary** (consume shared Postgres/Keycloak/ESO-Infisical; manifests in-repo, registered as one Argo app in shep-infra). **Every** W1–W6 task builds on it; reversing it means re-doing the wiring. Novel for this repo, irreversible, highest blast radius. **ADR-0008 is now written** (modular monolith, split-ready; platform consumed from shep-infra); T0.1 remaining work is the executable architecture test (compose stack boots) + reconciling `infra/`. |
 | **T1.3 — Durable workflow execution (persist + resume across restart)** | Correctness-critical concurrency: at-least-once with dedupe keys, idempotent steps, pause/resume that survives a crash mid-approval. A subtle bug here double-fires external effects (duplicate Jira tickets, double Slack sends) or loses a run — silent and hard to detect. Novel relative to the in-memory engine. |
 | **T4.1 — Connector SDK v2 + source-ACL mapping framework** | This is *the* security promise of the product: ingested objects must carry faithful source permissions or the "permission-aware brain" leaks data a user shouldn't see. Mapping heterogeneous source ACLs (Notion/Drive/Slack) to the ReBAC model correctly, generically, is novel and a data-leak-class failure if wrong. |
 | **T5.1 — Real MCP server transport + external trust boundary** | First point where *external* agents (Claude/Cursor) reach company data over the network. Protocol correctness + OIDC-client→principal→authz/audit on every call. A gap here is an unauthenticated path to the whole brain. Novel (no real transport exists today) and catastrophic-if-wrong. |
@@ -184,9 +184,12 @@ trigger, one real outbound (Slack), real MCP server, flagship e2e, observability
 security pass, honest trust UX.
 
 **Explicitly deferred:** the other 6 connectors; Temporal/Trigger.dev at scale
-(durable-in-Postgres suffices); Graphiti temporal graph (hybrid search
-suffices); Qdrant (pgvector is default); self-serve multi-tenant org creation
-(one secured tenant suffices); mobile; marketplace billing.
+(durable-in-Postgres on the shared CNPG suffices — ADR-0008); Graphiti temporal graph
+(hybrid search suffices); Qdrant (pgvector on the shared Postgres is default —
+ADR-0008); self-serve multi-tenant org creation (one secured tenant suffices);
+splitting `core` into microservices (split-ready, criteria in ADR-0008; the MVP
+ships one `core` Deployment); a shared platform OTel backend; mobile; marketplace
+billing.
 
 **Added to scope (gap-doc findings, MVP-critical, not in original plan):**
 honest demo-vs-live UI labeling, first-run/empty-state flows, app-level
