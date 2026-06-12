@@ -32,6 +32,14 @@ export interface CoreConfig {
   jira?: { baseUrl: string; email: string; apiToken: string; projectKey: string; issueType?: string };
   /** Notion source connector OAuth config (read). Registered when set. */
   notion?: { clientId: string; clientSecret: string; redirectUri: string };
+  /** Google Drive source connector OAuth config (read). */
+  googleDrive?: { clientId: string; clientSecret: string; redirectUri: string };
+  /** GitHub source connector OAuth config (read). */
+  github?: { clientId: string; clientSecret: string; redirectUri: string };
+  /** Gmail source connector OAuth config (read). */
+  gmail?: { clientId: string; clientSecret: string; redirectUri: string };
+  /** Google Calendar source connector OAuth config (read). */
+  googleCalendar?: { clientId: string; clientSecret: string; redirectUri: string };
   /** Real embeddings via an OpenAI-compatible /v1/embeddings server; else bag-of-words. */
   embeddings?: { baseUrl: string; model: string; apiKey?: string };
   /** Default org for single-tenant MVP wiring + dev. */
@@ -42,6 +50,14 @@ export interface CoreConfig {
 function envBool(v: string | undefined, dflt: boolean): boolean {
   if (v == null) return dflt;
   return v === "1" || v.toLowerCase() === "true";
+}
+
+/** Read a `${PREFIX}_CLIENT_ID/SECRET/REDIRECT_URI` OAuth triple, or undefined. */
+function oauthCfg(env: NodeJS.ProcessEnv, prefix: string) {
+  const clientId = env[`${prefix}_CLIENT_ID`];
+  const clientSecret = env[`${prefix}_CLIENT_SECRET`];
+  const redirectUri = env[`${prefix}_REDIRECT_URI`];
+  return clientId && clientSecret && redirectUri ? { clientId, clientSecret, redirectUri } : undefined;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
@@ -83,14 +99,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
             issueType: env.JIRA_ISSUE_TYPE
           }
         : undefined,
-    notion:
-      env.NOTION_CLIENT_ID && env.NOTION_CLIENT_SECRET && env.NOTION_REDIRECT_URI
-        ? {
-            clientId: env.NOTION_CLIENT_ID,
-            clientSecret: env.NOTION_CLIENT_SECRET,
-            redirectUri: env.NOTION_REDIRECT_URI
-          }
-        : undefined,
+    notion: oauthCfg(env, "NOTION"),
+    googleDrive: oauthCfg(env, "GOOGLE_DRIVE"),
+    github: oauthCfg(env, "GITHUB"),
+    gmail: oauthCfg(env, "GMAIL"),
+    googleCalendar: oauthCfg(env, "GOOGLE_CALENDAR"),
     embeddings:
       env.EMBEDDINGS_BASE_URL && env.EMBEDDINGS_MODEL
         ? { baseUrl: env.EMBEDDINGS_BASE_URL.replace(/\/$/, ""), model: env.EMBEDDINGS_MODEL, apiKey: env.EMBEDDINGS_API_KEY }

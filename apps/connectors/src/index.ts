@@ -152,6 +152,49 @@ export type {
 } from "./notion.js";
 export { NotionConnector, notionPageToIngest, mapNotionAcl } from "./notion.js";
 
+// GitHub connector (T4.3)
+export type {
+  GitHubConnectorConfig,
+  GitHubNativePermissions,
+  GitHubIssue,
+  GitHubRepo,
+} from "./github.js";
+export { GitHubConnector, githubIssueToIngest, mapGitHubAcl, parseNextLink } from "./github.js";
+
+// Google Drive connector (T4.3)
+export type {
+  GoogleDriveConnectorConfig,
+  GoogleDriveNativePermissions,
+  DrivePermission,
+  DriveFile,
+} from "./drive.js";
+export { GoogleDriveConnector, driveFileToIngest, mapGoogleDriveAcl } from "./drive.js";
+
+// Gmail connector (T4.x)
+export type {
+  GmailConnectorConfig,
+  GmailNativePermissions,
+  GmailMessage,
+  GmailMessagePart,
+  GmailHeader,
+} from "./gmail.js";
+export { GmailConnector, gmailMessageToIngest, mapGmailAcl } from "./gmail.js";
+
+// Google Calendar connector (T7.3)
+export type {
+  GoogleCalendarConnectorConfig,
+  GoogleCalendarNativePermissions,
+  GoogleCalendarEvent,
+  GoogleCalendarAttendee,
+  GoogleCalendarOrganizer,
+  GoogleCalendarEventDate,
+} from "./calendar.js";
+export {
+  GoogleCalendarConnector,
+  googleCalendarEventToIngest,
+  mapGoogleCalendarAcl,
+} from "./calendar.js";
+
 // Zoom connector v2 types only — value exports (ZoomConnectorV2, mapZoomAcl,
 // verifyZoomWebhook, hmacSha256Hex, safeCompare, runConformance) are in
 // sdk-node.ts/zoom.ts which use node:crypto and must NOT be bundled for the

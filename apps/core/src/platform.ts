@@ -11,7 +11,16 @@ import { AgentRegistry } from "@companyos/agent-registry";
 import { SkillRegistry } from "@companyos/skill-registry";
 import { WorkflowEngine, type RunRecord, type AgentHandler } from "@companyos/workflow-engine";
 import { McpGateway } from "@companyos/gateway";
-import { cleanTranscript, ConnectorRegistry, ZoomConnector, NotionConnector } from "@companyos/connectors";
+import {
+  cleanTranscript,
+  ConnectorRegistry,
+  ZoomConnector,
+  NotionConnector,
+  GoogleDriveConnector,
+  GitHubConnector,
+  GmailConnector,
+  GoogleCalendarConnector
+} from "@companyos/connectors";
 import type { SourceConnector, SyncContext } from "@companyos/connectors";
 import { BudgetTracker, type AuditSink } from "@companyos/telemetry";
 import type { AuthzEngine, Principal } from "@companyos/auth";
@@ -94,9 +103,11 @@ export class CorePlatform {
     });
     this.connectorRegistry.register(new ZoomConnector());
     // Source (OAuth/backfill) connectors — registered when their creds are set.
-    if (this.config.notion) {
-      this.sourceConnectors.set("notion", new NotionConnector(this.config.notion));
-    }
+    if (this.config.notion) this.sourceConnectors.set("notion", new NotionConnector(this.config.notion));
+    if (this.config.googleDrive) this.sourceConnectors.set("google_drive", new GoogleDriveConnector(this.config.googleDrive));
+    if (this.config.github) this.sourceConnectors.set("github", new GitHubConnector(this.config.github));
+    if (this.config.gmail) this.sourceConnectors.set("gmail", new GmailConnector(this.config.gmail));
+    if (this.config.googleCalendar) this.sourceConnectors.set("google_calendar", new GoogleCalendarConnector(this.config.googleCalendar));
   }
 
   /**
@@ -160,16 +171,25 @@ export class CorePlatform {
     seedDemoOrg({ org, authz: this.authz, brain: this.brain, agents: this.agents, skills: this.skills, user, opsAgent });
     this.runAsAgent = opsAgent;
     // Honest demo states (no fictional "connected · synced" — see MVP-GAP §8).
-    // `demo: true` marks seeded rows that are NOT a live external link. A real
-    // link only exists once a connector is OAuth-configured + backfilled.
-    const notionWired = Boolean(this.config.notion);
+    // `connected` reflects whether the connector is actually OAuth-configured;
+    // `demo: true` marks a seeded row that is NOT a live external link.
+    const cfg = this.config;
+    const card = (name: string, label: string, category: string, wired: boolean): ConnectorInfo => ({
+      name,
+      label,
+      category,
+      connected: wired,
+      demo: !wired
+    });
     this.connectors = [
-      { name: "notion", label: "Notion", category: "Docs & wiki", connected: notionWired, demo: !notionWired },
-      { name: "google_drive", label: "Google Drive", category: "Files", connected: false, demo: true },
-      { name: "github", label: "GitHub", category: "Code & PRs", connected: false, demo: true },
-      { name: "slack", label: "Slack", category: "Chat", connected: Boolean(this.config.slack), demo: !this.config.slack },
-      { name: "zoom", label: "Zoom", category: "Meetings", connected: true, demo: true },
-      { name: "jira", label: "Jira", category: "Tickets", connected: Boolean(this.config.jira), demo: !this.config.jira }
+      card("notion", "Notion", "Docs & wiki", Boolean(cfg.notion)),
+      card("google_drive", "Google Drive", "Files", Boolean(cfg.googleDrive)),
+      card("github", "GitHub", "Code & PRs", Boolean(cfg.github)),
+      card("gmail", "Gmail", "Email", Boolean(cfg.gmail)),
+      card("google_calendar", "Google Calendar", "Calendar", Boolean(cfg.googleCalendar)),
+      card("slack", "Slack", "Chat", Boolean(cfg.slack)),
+      card("zoom", "Zoom", "Meetings", true), // real webhook connector (always registered)
+      card("jira", "Jira", "Tickets", Boolean(cfg.jira))
     ];
     const wf = flagshipWorkflow(org);
     this.workflows.set(wf.id, wf);
