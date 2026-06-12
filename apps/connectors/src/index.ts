@@ -165,3 +165,7 @@ export type {
 // Slack outbound notifier (T4.5)
 export type { PostMessageParams, PostMessageResult } from "./slack.js";
 export { SlackNotifier } from "./slack.js";
+
+// Jira outbound create-issue (T4.6)
+export type { JiraClientConfig, CreateIssueParams, CreateIssueResult } from "./jira.js";
+export { JiraClient } from "./jira.js";

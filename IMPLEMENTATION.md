@@ -4,13 +4,45 @@ This document maps the phased plan (`docs/phases/`) to the working,
 test-covered code in this monorepo. Built with the TDD/BDD/e2e,
 evidence-based methodology of `docs/05-development-methodology.md`.
 
+> ## ⚠️ Current status (2026-06-12) — read this first
+>
+> **Target: zero mocks — every flow fully integrated** (decision 2026-06-12;
+> broader than the deferred-scope MVP in `docs/MVP-GAP.md §7`). The phase tables
+> further down describe the **original in-browser build** and are kept for
+> history: the platform was since rebuilt **server-side** as **`apps/core`**
+> (PR #4). The "Web UI" sentence below claiming the app *"drives the real
+> in-browser platform — not mocks"* is **superseded** — those services were real
+> *instances* running on **in-memory stand-ins**, and the live flow still
+> contains mocks today.
+>
+> Authoritative live status lives in **`docs/mvp-completion/HANDOFF.md §0.5`**
+> and **`tasks/traceability-matrix.md`** (MVP-completion section). Current
+> real / gated / mock split:
+>
+> | Piece | Status | Note |
+> | --- | --- | --- |
+> | Workflow engine, governance, approvals, audit, MCP gateway semantics | ✅ Real | the orchestration moat |
+> | MCP server transport (`@modelcontextprotocol/sdk`) | ✅ Real | `apps/core/src/mcp` |
+> | Zoom connector | ✅ Real | HMAC verify + transcript fetch |
+> | Postgres+RLS · OpenFGA · Keycloak/OIDC | 🔌 Gated | real adapter, active only if `DATABASE_URL` / `OPENFGA_*` / `AUTH_KEYCLOAK_ISSUER` set; else SQLite / in-memory / dev-`alice` |
+> | Claude agent (`extract_meeting`) | 🔌 Gated | real Anthropic SDK only with `ANTHROPIC_API_KEY`; else `mockExtract()` |
+> | Notion connector | 🟡 Real code, not wired | exists but not registered in `apps/core/src/platform.ts` |
+> | Outbound Slack | 🔴 Mock in flow | real `SlackNotifier` exists but the engine uses in-memory `effects.ts` |
+> | Outbound Jira | 🔴 Mock | in-memory `TASK-n` stub |
+> | Embeddings | 🔴 Mock | bag-of-words; pgvector column stored NULL |
+> | LLM judges (factuality/tone/hallucination) | 🔴 Mock | deterministic heuristics |
+> | Google Drive / GitHub / Gmail / Calendar connectors | 🔴 Mock | no code; fake `connected:true` seed dots |
+> | Temporal memory graph (Graphiti) | 🔴 Absent | named in vision; no code |
+>
+> Driving each row to ✅ is tracked in `tasks/mvp-backlog.md` (Status column).
+
 ## How to run
 
 ```bash
 pnpm install
 pnpm typecheck                      # node code (tsc --noEmit)
 pnpm --filter @companyos/web exec tsc -p tsconfig.json --noEmit   # web (React) typecheck
-pnpm test                           # 125 tests (118 pass, 7 OpenFGA-integration skip locally)
+pnpm test                           # 187 pass / 11 skipped (OpenFGA + PG integration skip locally, run in CI)
 pnpm test:coverage                  # enforces coverage gate (docs/07)
 
 # Web UI (comprehensive React app with guided onboarding)
@@ -21,10 +53,16 @@ pnpm --filter @companyos/web start  # serves the built SPA + BFF on :3000
 
 ## Web UI (apps/web)
 
-A full single-page app (Vite + React + React Flow) that drives the **real**
-in-browser platform — not mocks. `src/app/lib/platform.ts` instantiates the
-actual services (auth, brain, governance, workflow engine, gateway, agent &
-skill registries, connectors), seeds a demo org, and the UI operates them live.
+> **Superseded (2026-06-12) — see the status banner above.** The platform now
+> runs server-side in `apps/core`; the web app is becoming a thin API client
+> (T0.4). The description below uses "real" to mean *real service instances* —
+> but those instances run on in-memory stand-ins, so this is **not** mock-free.
+
+A full single-page app (Vite + React + React Flow) that drives the
+in-browser platform. `src/app/lib/platform.ts` instantiates the
+services (auth, brain, governance, workflow engine, gateway, agent &
+skill registries, connectors), seeds a demo org, and the UI operates them live
+against **in-memory stand-ins**.
 
 - **Guided onboarding** (`onboarding/Onboarding.tsx`): a 7-step tour ending in a
   *live* run of the flagship workflow — trigger → eval gate → **approval
@@ -59,7 +97,7 @@ touching business logic.
 | **07 Hardening** | Interface seams for durable backend (ADR-0003) & vector store (ADR-0004); audit integrity digest; tenancy via `orgId` scoping; infra overlays + NetworkPolicies + sealed secrets (`infra/`) | cross-cutting + `infra/` | (infra CI job) |
 | **08 Governance & evals** | Evaluators (source_coverage/factuality/policy/tone/hallucination) + suite gating, authorize+audit on every action, approvals (decide/timeout/escalate), budget enforcement, eval gate | `apps/eval-service`, `apps/governance` | 7 + 7 |
 
-**Total: 125 tests (118 pass; 7 OpenFGA integration skip locally, run in CI), all green.**
+**Total (incl. `apps/core`): 187 pass / 11 skipped (OpenFGA + PG integration skip locally, run in CI), all green.**
 Coverage exceeds the gate in `docs/07` (lines ~91%, branches ~91%, functions ~87%).
 
 ## Flagship end-to-end proof

@@ -259,6 +259,12 @@ and actually delivers the vision's north-star outcomes.
 
 ## 7. Recommended scope discipline (what to defer)
 
+> **⚠️ Superseded 2026-06-12 — deferrals lifted.** The target is now **full
+> integration, zero mocks**: all 8 connectors, the temporal graph, and
+> self-serve tenancy are **in scope**, tracked as workstream **W7** in
+> `tasks/mvp-backlog.md`. The "defer" list below is kept for history. (pgvector
+> remains the vector default; Qdrant stays deferred as a scale option only.)
+
 To reach the thread above without boiling the ocean, explicitly **defer**:
 - 7 of 8 connectors (ship **one** real connector; the rest stay "coming soon" —
   and the UI should say so honestly, see §8).

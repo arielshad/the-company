@@ -5,6 +5,21 @@ thread in `docs/mvp-completion/00-plan-and-model-strategy.md §1`). Specs:
 `docs/mvp-completion/01-technical-specs.md`. Tier rationale model:
 `docs/mvp-completion/00-plan-and-model-strategy.md §4`.
 
+> ## Scope: zero mocks — everything integrated (decision 2026-06-12)
+>
+> The target is now **no mock anywhere in the running flow** — every integration
+> real, not gated-to-a-stub. This is **broader than the original MVP scope**,
+> which deferred 7 of 8 connectors, Graphiti, Qdrant, and self-serve tenancy
+> (`docs/MVP-GAP.md §7`). Those deferrals are **lifted**; the un-deferred work is
+> added as workstream **W7** below. "Gated" (real adapter, stub fallback when a
+> secret is absent) does **not** count as done for this target — the real path
+> must be the wired default, with the stub reserved for offline CI only.
+>
+> **Status legend (per-task column added below):**
+> ✅ **Done** real & wired · 🔌 **Gated** real adapter exists, stub fallback is
+> still the default · 🟡 **Partial** code exists but not wired into the live flow
+> · 🔴 **Mock** in-memory/heuristic stand-in only · ⬜ **Pending** not started.
+
 **Tier legend:** **F** = Fable 5 (`claude-fable-5`) · **O** = Opus 4.8
 (`claude-opus-4-8`) · **S** = Sonnet 4.6 (`claude-sonnet-4-6`) · **H** = Haiku
 4.5 (`claude-haiku-4-5`).
@@ -12,6 +27,54 @@ thread in `docs/mvp-completion/00-plan-and-model-strategy.md §1`). Specs:
 Every task carries a **Tier rationale** so the orchestrator knows *why* a model
 is needed — not just which. All tasks obey the evidence contract in
 `docs/05-development-methodology.md` (red→green, BDD per FR, e2e per journey).
+
+---
+
+## Status snapshot (2026-06-12) — authoritative
+
+Single source of truth for what is real vs. mock right now. Verified against
+code + `docs/mvp-completion/HANDOFF.md §0.5`. ✅ done&wired · 🔌 gated · 🟡 partial
+(code exists, not wired) · 🔴 mock · ⬜ pending.
+
+| Task | Status | Reality today |
+| --- | --- | --- |
+| T0.1 core monolith + infra reconcile | ✅ | `apps/core`; infra collapsed to core/web/openfga |
+| T0.2/T0.3 OpenAPI + Fastify API | ✅ | typed endpoint per `platform.ts` method, via gateway authz/audit |
+| T0.4 web → typed API client | ⬜ | web still drives in-browser platform |
+| T0.5/T0.6 Dockerfiles + compose + CI | ✅ | core image, compose-smoke green |
+| T0.7 shep-infra apply (Argo, setup, pgvector enable) | ⬜ | glue written (PR #20); not applied → prod can't boot on PG yet |
+| T1.1/T1.2 PG schema, RLS, audit chain | ✅ | verified vs real PG16+pgvector |
+| T1.3 durable runs persist+resume | 🟡 | resume slice + effect idempotency done; runs still in-memory (run/run_steps not persisted) |
+| T1.4 seed via real tenant path | ⬜ | — |
+| T2.1 Keycloak OIDC login + token validation | 🟡 | `auth/session.ts` jose verify exists; realm not wired; dev-`alice` is default |
+| T2.2 server-side OpenFGA authz every call | 🟡 | `OpenFgaAuthz` adapter exists; not enforced on every endpoint |
+| T2.3 org lifecycle → OpenFGA tuples | ⬜ | single hardcoded demo org |
+| T2.4 ESO ExternalSecrets | ⬜ | — |
+| T3.1 real Claude `AgentHandler` | 🔌 | real Anthropic SDK with `ANTHROPIC_API_KEY`; else `mockExtract()` |
+| T3.2 flagship extract prompt + schema | 🟡 | real-path tool schema exists; grounding/citations to verify |
+| T3.3 real embeddings + pgvector store | 🔴 | bag-of-words; `searchByVector`/`setEmbedding` exist but embeddings stored NULL, no Embedder wired |
+| T3.4 LLM judges | 🔴 | deterministic heuristics (token overlap, 4-word blocklist) |
+| T3.5 eval thresholds config | ⬜ | — |
+| T4.1 connector SDK v2 + conformance kit | ✅ | caps + ACL seam + conformance kit |
+| T4.2 Notion connector | 🔌 | **registered** + `platform.backfillSource` ingest path wired (gated on `NOTION_*` OAuth creds); tested with injected fetch |
+| T4.3 Google Drive connector | 🔴 | no code; fake `connected:true` seed dot |
+| T4.4 Zoom connector | ✅ | real API + HMAC webhook → ingest + trigger |
+| T4.5 outbound Slack | 🔌 | real `SlackNotifier` **wired into** `effects.ts` (gated on `SLACK_BOT_TOKEN`); capture ledger retained as audit mirror |
+| T4.6 outbound Jira | 🔌 | real `JiraClient` (`connectors/jira.ts`) wired into `effects.ts` (gated on `JIRA_*`), idempotent |
+| T4.7 connectors UI (real OAuth + honest states) | 🟡 | data now honest (`demo` flag; no fictional green dots); UI surfacing pending |
+| T4.8 per-connector OAuth scopes + secrets | ⬜ | — |
+| T4.9 ingestion pipeline (queue→chunk→embed→lineage) | 🟡 | webhook→ingest plumbed; no queue/worker/chunk/embed/lineage |
+| T5.1 real MCP server transport | ✅ | `@modelcontextprotocol/sdk` Streamable HTTP + OIDC boundary + rate limit |
+| T5.2 MCP catalog parity + contracts | 🟡 | gateway tools exposed; Pact/contract parity pending |
+| T5.3 external Claude/MCP client interop | ⬜ | — |
+| T5.4 MCP ingress + netpol | ⬜ | — |
+| T6.1 flagship Playwright e2e on deployed stack | ⬜ | in-memory flagship test only |
+| T6.2 OpenTelemetry | ⬜ | — |
+| T6.3 trust UX (demo-vs-live, empty states, export) | ⬜ | — |
+| T6.4 security pass | ⬜ | — |
+| T6.5 CI flagship e2e | ⬜ | core image + compose-smoke done; no e2e on PR |
+| T6.6 cost/observability dashboard | ⬜ | — |
+| **W7 (lifted deferrals — see below)** | ⬜ | GitHub/Gmail/Calendar/Slack-read connectors, Graphiti graph, self-serve tenancy |
 
 ---
 
@@ -108,6 +171,25 @@ mechanical config/scaffolds.
 | **T6.4** | Security pass: authz on every path, no secrets in logs, default-deny netpol, data export/delete + PII tagging | NFR-1,7 | **O** | Cross-cutting security + compliance; mandatory Opus per hard rule (auth/secrets/IaC). | `/security-review` + export/delete BDD |
 | **T6.5** | CI: build+push images, boot compose dev stack, run flagship e2e on PR; coverage gates; tag bump in `infra/overlays/<env>` triggers the shep-infra Argo app to sync | NFR-8 | **H** | Pipeline config from existing CI patterns; mechanical. | CI green |
 | **T6.6** | Cost/observability dashboard wired to real spend/eval/latency | FR-8.5 | **S** | Dashboard build on real telemetry; known pattern. | e2e (dashboard renders real data) |
+
+## W7 — Lifted deferrals (zero-mock scope, 2026-06-12)
+
+Work the original MVP deferred (`docs/MVP-GAP.md §7`), now in scope because the
+target is full integration with no mocks. Each follows the SDK v2 conformance
+contract (T4.1) and the brain/store seams already built.
+
+| Task | Description | FR/NFR | Tier | Tier rationale | Test |
+| --- | --- | --- | --- | --- | --- |
+| **T7.1** | GitHub connector (read): OAuth, repos/issues/PRs backfill + incremental, faithful repo/team ACL mapping, ingest | FR-2.1,2.5 | **S** | Same conformance pattern as Notion (T4.2); SDK v2 carries the hard part. | Contract + conformance + integration |
+| **T7.2** | Gmail connector (read): OAuth, message backfill + incremental, per-mailbox ACL, ingest | FR-2.1,2.5 | **S** | Repetitive integration on the fixed contract; ACL is per-owner (simple). | Contract + conformance |
+| **T7.3** | Google Calendar connector (read): OAuth, event backfill + incremental, attendee ACL, ingest | FR-2.1,2.5 | **S** | Same pattern as T7.2. | Contract + conformance |
+| **T7.4** | Slack connector (read): channel/message backfill + incremental, channel-membership ACL — completes the 8th source | FR-2.1,2.5 | **S** | Read side of the already-real Slack outbound; known pattern. | Contract + conformance |
+| **T7.5** | Temporal memory graph (Graphiti-style): entity/edge extraction + time-scoped graph behind `MemoryStore`; hybrid graph+vector retrieval | FR-3.3 | **O** | Core brain IP + retrieval correctness; novel graph model + bitemporal edges, data-model hard rule. | Integration (entity/edge persisted; time-travel query) |
+| **T7.6** | Self-serve multi-tenant org creation: create-org API+UI, real tenant provisioning via the T2.3 path (no hardcoded org) | FR-1.2 | **S** | CRUD + provisioning against the fixed authz/tenancy model; not novel. | BDD (new tenant isolated) |
+
+All 8 FR-2.1 connectors real after W4+W7: Notion (T4.2), Drive (T4.3), Zoom
+(T4.4), Slack out (T4.5) + read (T7.4), Jira (T4.6), GitHub (T7.1), Gmail
+(T7.2), Calendar (T7.3).
 
 ---
 

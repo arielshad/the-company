@@ -26,6 +26,12 @@ export interface CoreConfig {
   devAuth: boolean;
   /** Anthropic API key for real agents/judges; absent ⇒ deterministic mock. */
   anthropicApiKey?: string;
+  /** Outbound Slack (real chat.postMessage when set; else capture-only). */
+  slack?: { botToken: string; defaultChannel: string };
+  /** Outbound Jira (real create-issue when set; else capture-only). */
+  jira?: { baseUrl: string; email: string; apiToken: string; projectKey: string; issueType?: string };
+  /** Notion source connector OAuth config (read). Registered when set. */
+  notion?: { clientId: string; clientSecret: string; redirectUri: string };
   /** Default org for single-tenant MVP wiring + dev. */
   defaultOrg: string;
   appUrl: string;
@@ -62,6 +68,27 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
     oidc: issuer ? { issuer, clientId: env.AUTH_KEYCLOAK_ID ?? "the-company-web" } : undefined,
     devAuth,
     anthropicApiKey: env.ANTHROPIC_API_KEY,
+    slack: env.SLACK_BOT_TOKEN
+      ? { botToken: env.SLACK_BOT_TOKEN, defaultChannel: env.SLACK_DEFAULT_CHANNEL ?? "#team-updates" }
+      : undefined,
+    jira:
+      env.JIRA_BASE_URL && env.JIRA_EMAIL && env.JIRA_API_TOKEN && env.JIRA_PROJECT_KEY
+        ? {
+            baseUrl: env.JIRA_BASE_URL.replace(/\/$/, ""),
+            email: env.JIRA_EMAIL,
+            apiToken: env.JIRA_API_TOKEN,
+            projectKey: env.JIRA_PROJECT_KEY,
+            issueType: env.JIRA_ISSUE_TYPE
+          }
+        : undefined,
+    notion:
+      env.NOTION_CLIENT_ID && env.NOTION_CLIENT_SECRET && env.NOTION_REDIRECT_URI
+        ? {
+            clientId: env.NOTION_CLIENT_ID,
+            clientSecret: env.NOTION_CLIENT_SECRET,
+            redirectUri: env.NOTION_REDIRECT_URI
+          }
+        : undefined,
     defaultOrg: env.DEFAULT_ORG ?? "acme",
     appUrl: env.APP_URL ?? "http://localhost:8080"
   };

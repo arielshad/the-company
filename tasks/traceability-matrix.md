@@ -87,6 +87,11 @@ task makes **real in the running system** (the original phase tasks proved the
 logic with in-memory stand-ins; these cross the four reality boundaries — see
 `docs/mvp-completion/`). Tier: **F**=Fable, **O**=Opus, **S**=Sonnet, **H**=Haiku.
 
+> **Authoritative status:** `tasks/mvp-backlog.md` → "Status snapshot (2026-06-12)".
+> "Proof = PR #4" below means the code/test landed; it does **not** imply the real
+> path is the wired default. Gated / partial / mock tasks still have a mock in the
+> live flow — see the snapshot.
+
 | Task | Req(s) | Tier | Primary test layer | Proof (PR/artifact) |
 | --- | --- | --- | --- | --- |
 | T0.1 Server runtime ADR-0008 (browser→server, trust boundary, shep-infra platform boundary) | NFR-1, NFR-2, NFR-8 | F | ADR + compose-boot architecture test | **ADR-0008 + apps/core + infra reconcile** (PR #4); compose smoke in CI |
@@ -104,17 +109,17 @@ logic with in-memory stand-ins; these cross the four reality boundaries — see
 | T2.2 Server-side OpenFGA authz on every API/MCP call | FR-1.4, FR-7.2, NFR-1 | O | BDD (permission-aware) + `/security-review` | _pending_ |
 | T2.3 Org lifecycle; groups→roles→OpenFGA tuples | FR-1.2, FR-1.3 | S | BDD (role mapping) | _pending_ |
 | T2.4 ESO ExternalSecrets (Keycloak/OpenFGA/DB/Anthropic) from Infisical | NFR-1 | H | `kustomize build` + scan | _pending_ |
-| T3.1 Real AgentHandler (Claude provider) + real budget metering | FR-4.1, FR-4.3, NFR-9 | O | integration (metering from real usage; hard-stop) | _pending_ |
+| T3.1 Real AgentHandler (Claude provider) + real budget metering | FR-4.1, FR-4.3, NFR-9 | O | integration (metering from real usage; hard-stop) | 🔌 **Gated**: real Anthropic SDK with `ANTHROPIC_API_KEY`, else `mockExtract` (PR #4). Real-path metering test pending |
 | T3.2 Flagship extraction prompt + JSON schema (cited) | FR-3.6, FR-8.2 | S | BDD (cited extraction) + eval | _pending_ |
 | T3.3 Real embeddings + pgvector MemoryStore; hybrid + perm filter | FR-3.1, FR-3.2 | O | integration (semantic match; perm filter holds) | _pending_ |
 | T3.4 LLM judge (factuality/hallucination) behind Evaluator | FR-8.2, FR-8.3 | S | unit + BDD (gate blocks on fail) | _pending_ |
 | T3.5 Eval thresholds config + fixtures | FR-8.2 | H | unit | _pending_ |
 | T4.1 Connector SDK v2: OAuth + source-ACL mapping + conformance kit | FR-2.1, FR-2.2, FR-2.3, FR-2.5, NFR-1 | F | conformance kit + `/security-review` | _pending_ |
 | T4.1 Connector SDK v2 + source-ACL mapping framework + conformance kit | FR-2.1,2.2,2.3,2.5, NFR-1 | F | conformance kit + security-review | **connectors/sdk.ts (caps + ACL seam + conformance kit)** (PR #4) |
-| T4.2 Notion connector (read) — first real source | FR-2.1, FR-2.5 | S | contract + conformance + integration | **connectors/notion.ts** (OAuth, backfill, incremental, conservative ACL) (PR #4) |
+| T4.2 Notion connector (read) — first real source | FR-2.1, FR-2.5 | S | contract + conformance + integration | 🟡 **connectors/notion.ts** (OAuth, backfill, incremental, conservative ACL) (PR #4) — **not yet registered** in `apps/core/src/platform.ts`, so the live flow can't use it |
 | T4.3 Google Drive connector (read) | FR-2.1, FR-2.5 | S | contract + conformance | _pending_ |
 | T4.4 Zoom connector (real API + webhook → ingest + trigger) | FR-2.1, FR-6.3 | S | contract + conformance; feeds flagship e2e | **connectors/zoom.ts (HMAC verify) + core webhook route** (PR #4) |
-| T4.5 Outbound Slack notify (real, gated, idempotent) | FR-9.1 | S | contract (no double-send on replay) | **connectors/slack.ts (idempotent postMessage)** (PR #4); core effects wiring pending token |
+| T4.5 Outbound Slack notify (real, gated, idempotent) | FR-9.1 | S | contract (no double-send on replay) | 🟡 **connectors/slack.ts (idempotent postMessage)** (PR #4) — **not wired**: the engine's notify effect is in-memory (`apps/core/src/effects.ts`); real `SlackNotifier` is not connected |
 | T4.6 Outbound Jira create-issue (real, gated, idempotent) | FR-9.2 | S | contract | _pending_ |
 | T4.7 Connectors UI: real OAuth flow + honest states | FR-2.4 | S | e2e (state transitions) | _pending_ |
 | T4.8 Per-connector OAuth scopes + sealed secrets | FR-2.3, NFR-1 | H | integration (least-priv) | _pending_ |

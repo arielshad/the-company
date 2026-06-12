@@ -11,14 +11,15 @@ import { AgentRegistry } from "@companyos/agent-registry";
 import { SkillRegistry } from "@companyos/skill-registry";
 import { WorkflowEngine, type RunRecord, type AgentHandler } from "@companyos/workflow-engine";
 import { McpGateway } from "@companyos/gateway";
-import { cleanTranscript, ConnectorRegistry, ZoomConnector } from "@companyos/connectors";
+import { cleanTranscript, ConnectorRegistry, ZoomConnector, NotionConnector } from "@companyos/connectors";
+import type { SourceConnector, SyncContext } from "@companyos/connectors";
 import { BudgetTracker, type AuditSink } from "@companyos/telemetry";
 import type { AuthzEngine, Principal } from "@companyos/auth";
 import type { AuditRecord } from "@companyos/schemas";
 import { canvasToDsl, type Canvas, type Workflow } from "@companyos/dsl";
 import type { CoreConfig } from "./config.js";
 import { createAgentHandlers } from "./agent-provider.js";
-import { createInMemoryEffects, type EffectHandlers } from "./effects.js";
+import { createEffects, effectClientsFromConfig, type EffectHandlers } from "./effects.js";
 import { demoPrincipals, flagshipWorkflow, seedDemoOrg } from "./seed.js";
 
 export interface ConnectorInfo {
@@ -27,6 +28,8 @@ export interface ConnectorInfo {
   category: string;
   connected: boolean;
   lastSyncAt?: string;
+  /** True when the row is seeded demo data, not a live external link (trust UX). */
+  demo?: boolean;
 }
 
 export interface CorePlatformDeps {
@@ -53,6 +56,7 @@ export class CorePlatform {
 
   readonly workflows = new Map<string, Workflow>();
   readonly connectorRegistry = new ConnectorRegistry();
+  private readonly sourceConnectors = new Map<string, SourceConnector>();
   connectors: ConnectorInfo[] = [];
   /** Agent principal workflows run as when triggered by a connector event. */
   private runAsAgent?: Principal;
@@ -61,7 +65,7 @@ export class CorePlatform {
     this.config = deps.config;
     this.authz = deps.authz;
     this.audit = deps.audit;
-    this.effects = deps.effects ?? createInMemoryEffects();
+    this.effects = deps.effects ?? createEffects(effectClientsFromConfig(this.config));
     const agentHandlers = deps.agentHandlers ?? createAgentHandlers({ apiKey: deps.config.anthropicApiKey });
 
     this.brain = new BrainService(this.authz, this.audit, deps.memoryStore);
@@ -88,6 +92,39 @@ export class CorePlatform {
       defaultOrg: this.config.defaultOrg
     });
     this.connectorRegistry.register(new ZoomConnector());
+    // Source (OAuth/backfill) connectors — registered when their creds are set.
+    if (this.config.notion) {
+      this.sourceConnectors.set("notion", new NotionConnector(this.config.notion));
+    }
+  }
+
+  /**
+   * Source-connector backfill/incremental → brain ingest. Pulls pages from a
+   * read connector (e.g. Notion) and ingests each with provenance + source ACL.
+   * Idempotent: `brain.ingest` dedupes on connector+externalId, so a re-run
+   * updates in place rather than duplicating. `fetchFn` is injectable for tests.
+   */
+  async backfillSource(
+    name: string,
+    accessToken: string,
+    opts: { orgId?: string; since?: string; fetchFn?: typeof fetch } = {}
+  ): Promise<{ ingested: number; deduped: number }> {
+    const connector = this.sourceConnectors.get(name);
+    if (!connector) throw new Error(`source connector ${name} not registered`);
+    const ctx: SyncContext = { orgId: opts.orgId ?? this.config.defaultOrg, accessToken, fetch: opts.fetchFn };
+    const gen =
+      opts.since && connector.incremental
+        ? connector.incremental(ctx, opts.since)
+        : connector.backfill?.(ctx);
+    if (!gen) throw new Error(`source connector ${name} does not support backfill`);
+    let ingested = 0;
+    let deduped = 0;
+    for await (const payload of gen) {
+      const r = this.brain.ingest(payload);
+      ingested++;
+      if (r.deduped) deduped++;
+    }
+    return { ingested, deduped };
   }
 
   /**
@@ -121,13 +158,17 @@ export class CorePlatform {
     const { user, opsAgent } = demoPrincipals(org);
     seedDemoOrg({ org, authz: this.authz, brain: this.brain, agents: this.agents, skills: this.skills, user, opsAgent });
     this.runAsAgent = opsAgent;
+    // Honest demo states (no fictional "connected · synced" — see MVP-GAP §8).
+    // `demo: true` marks seeded rows that are NOT a live external link. A real
+    // link only exists once a connector is OAuth-configured + backfilled.
+    const notionWired = Boolean(this.config.notion);
     this.connectors = [
-      { name: "notion", label: "Notion", category: "Docs & wiki", connected: true, lastSyncAt: new Date(Date.now() - 36e5).toISOString() },
-      { name: "google_drive", label: "Google Drive", category: "Files", connected: true, lastSyncAt: new Date(Date.now() - 72e5).toISOString() },
-      { name: "github", label: "GitHub", category: "Code & PRs", connected: true, lastSyncAt: new Date(Date.now() - 18e5).toISOString() },
-      { name: "slack", label: "Slack", category: "Chat", connected: false },
-      { name: "zoom", label: "Zoom", category: "Meetings", connected: true, lastSyncAt: new Date(Date.now() - 6e5).toISOString() },
-      { name: "jira", label: "Jira", category: "Tickets", connected: false }
+      { name: "notion", label: "Notion", category: "Docs & wiki", connected: notionWired, demo: !notionWired },
+      { name: "google_drive", label: "Google Drive", category: "Files", connected: false, demo: true },
+      { name: "github", label: "GitHub", category: "Code & PRs", connected: false, demo: true },
+      { name: "slack", label: "Slack", category: "Chat", connected: Boolean(this.config.slack), demo: !this.config.slack },
+      { name: "zoom", label: "Zoom", category: "Meetings", connected: true, demo: true },
+      { name: "jira", label: "Jira", category: "Tickets", connected: Boolean(this.config.jira), demo: !this.config.jira }
     ];
     const wf = flagshipWorkflow(org);
     this.workflows.set(wf.id, wf);
