@@ -19,10 +19,11 @@ import {
   GoogleDriveConnector,
   GitHubConnector,
   GmailConnector,
-  GoogleCalendarConnector
+  GoogleCalendarConnector,
+  SlackSourceConnector
 } from "@companyos/connectors";
 import type { SourceConnector, SyncContext } from "@companyos/connectors";
-import { BudgetTracker, type AuditSink } from "@companyos/telemetry";
+import { BudgetTracker, makeAuditRecord, type AuditSink } from "@companyos/telemetry";
 import type { AuthzEngine, Principal } from "@companyos/auth";
 import type { AuditRecord } from "@companyos/schemas";
 import { canvasToDsl, type Canvas, type Workflow } from "@companyos/dsl";
@@ -33,15 +34,33 @@ import { createEntityExtractor } from "./entity-extractor.js";
 import { createEffects, effectClientsFromConfig, type EffectHandlers } from "./effects.js";
 import { demoPrincipals, flagshipWorkflow, seedDemoOrg } from "./seed.js";
 
+export type ConnectorKind = "source" | "outbound" | "webhook";
+
 export interface ConnectorInfo {
   name: string;
   label: string;
   category: string;
+  kind: ConnectorKind;
+  /** OAuth/API creds present in config (can start a real OAuth connect). */
+  configured: boolean;
+  /** A usable token/route exists for this org (real link, not demo). */
   connected: boolean;
   lastSyncAt?: string;
-  /** True when the row is seeded demo data, not a live external link (trust UX). */
-  demo?: boolean;
+  /** True when the row is demo-only, not a live external link (trust UX). */
+  demo: boolean;
 }
+
+/** The full integration catalog surfaced + managed in the UI. */
+export const CONNECTOR_CATALOG: { name: string; label: string; category: string; kind: ConnectorKind }[] = [
+  { name: "notion", label: "Notion", category: "Docs & wiki", kind: "source" },
+  { name: "google_drive", label: "Google Drive", category: "Files", kind: "source" },
+  { name: "github", label: "GitHub", category: "Code & PRs", kind: "source" },
+  { name: "gmail", label: "Gmail", category: "Email", kind: "source" },
+  { name: "google_calendar", label: "Google Calendar", category: "Calendar", kind: "source" },
+  { name: "slack", label: "Slack", category: "Chat", kind: "source" },
+  { name: "zoom", label: "Zoom", category: "Meetings", kind: "webhook" },
+  { name: "jira", label: "Jira", category: "Tickets", kind: "outbound" }
+];
 
 export interface CorePlatformDeps {
   config: CoreConfig;
@@ -68,7 +87,10 @@ export class CorePlatform {
   readonly workflows = new Map<string, Workflow>();
   readonly connectorRegistry = new ConnectorRegistry();
   private readonly sourceConnectors = new Map<string, SourceConnector>();
-  connectors: ConnectorInfo[] = [];
+  /** Per-(org|connector) access token from the connect flow. NEVER serialized to the client. */
+  private readonly connectorTokens = new Map<string, string>();
+  /** Per-(org|connector) last successful sync timestamp. */
+  private readonly connectorLastSync = new Map<string, string>();
   /** Agent principal workflows run as when triggered by a connector event. */
   private runAsAgent?: Principal;
 
@@ -107,12 +129,17 @@ export class CorePlatform {
       defaultOrg: this.config.defaultOrg
     });
     this.connectorRegistry.register(new ZoomConnector());
-    // Source (OAuth/backfill) connectors — registered when their creds are set.
-    if (this.config.notion) this.sourceConnectors.set("notion", new NotionConnector(this.config.notion));
-    if (this.config.googleDrive) this.sourceConnectors.set("google_drive", new GoogleDriveConnector(this.config.googleDrive));
-    if (this.config.github) this.sourceConnectors.set("github", new GitHubConnector(this.config.github));
-    if (this.config.gmail) this.sourceConnectors.set("gmail", new GmailConnector(this.config.gmail));
-    if (this.config.googleCalendar) this.sourceConnectors.set("google_calendar", new GoogleCalendarConnector(this.config.googleCalendar));
+    // Source connectors are ALWAYS registered so a token from the connect flow
+    // enables backfill even in dev (real OAuth `authorizeUrl`/`exchangeCode`
+    // additionally needs creds in config; backfill only needs the access token).
+    const oauth = (c?: { clientId: string; clientSecret: string; redirectUri: string }) =>
+      c ?? { clientId: "", clientSecret: "", redirectUri: this.config.appUrl };
+    this.sourceConnectors.set("notion", new NotionConnector(oauth(this.config.notion)));
+    this.sourceConnectors.set("google_drive", new GoogleDriveConnector(oauth(this.config.googleDrive)));
+    this.sourceConnectors.set("github", new GitHubConnector(oauth(this.config.github)));
+    this.sourceConnectors.set("gmail", new GmailConnector(oauth(this.config.gmail)));
+    this.sourceConnectors.set("google_calendar", new GoogleCalendarConnector(oauth(this.config.googleCalendar)));
+    this.sourceConnectors.set("slack", new SlackSourceConnector(oauth(undefined)));
   }
 
   /**
@@ -194,27 +221,8 @@ export class CorePlatform {
     const { user, opsAgent } = demoPrincipals(org);
     seedDemoOrg({ org, authz: this.authz, brain: this.brain, agents: this.agents, skills: this.skills, user, opsAgent });
     this.runAsAgent = opsAgent;
-    // Honest demo states (no fictional "connected · synced" — see MVP-GAP §8).
-    // `connected` reflects whether the connector is actually OAuth-configured;
-    // `demo: true` marks a seeded row that is NOT a live external link.
-    const cfg = this.config;
-    const card = (name: string, label: string, category: string, wired: boolean): ConnectorInfo => ({
-      name,
-      label,
-      category,
-      connected: wired,
-      demo: !wired
-    });
-    this.connectors = [
-      card("notion", "Notion", "Docs & wiki", Boolean(cfg.notion)),
-      card("google_drive", "Google Drive", "Files", Boolean(cfg.googleDrive)),
-      card("github", "GitHub", "Code & PRs", Boolean(cfg.github)),
-      card("gmail", "Gmail", "Email", Boolean(cfg.gmail)),
-      card("google_calendar", "Google Calendar", "Calendar", Boolean(cfg.googleCalendar)),
-      card("slack", "Slack", "Chat", Boolean(cfg.slack)),
-      card("zoom", "Zoom", "Meetings", true), // real webhook connector (always registered)
-      card("jira", "Jira", "Tickets", Boolean(cfg.jira))
-    ];
+    // Connector status is computed live by listConnectors(orgId) from config +
+    // the per-org token store — no fictional "connected · synced" (MVP-GAP §8).
     const wf = flagshipWorkflow(org);
     this.workflows.set(wf.id, wf);
     this.engine.publish(wf);
@@ -292,8 +300,112 @@ export class CorePlatform {
   budgetSpent(agentId: string): number {
     return this.budget.spent(agentId);
   }
-  listConnectors(): ConnectorInfo[] {
-    return this.connectors;
+  /* ---------------- integrations (connect / backfill / status) ---------------- */
+
+  /** OAuth/API creds present in config for a connector. */
+  private connectorConfigured(name: string): boolean {
+    switch (name) {
+      case "notion": return Boolean(this.config.notion);
+      case "google_drive": return Boolean(this.config.googleDrive);
+      case "github": return Boolean(this.config.github);
+      case "gmail": return Boolean(this.config.gmail);
+      case "google_calendar": return Boolean(this.config.googleCalendar);
+      case "slack": return Boolean(this.config.slack);
+      case "jira": return Boolean(this.config.jira);
+      case "zoom": return true; // webhook connector, no OAuth handshake
+      default: return false;
+    }
+  }
+
+  private tokenKey(orgId: string, name: string): string {
+    return `${orgId}|${name}`;
+  }
+
+  /** Live connector catalog + per-org status for the UI. */
+  listConnectors(orgId: string): ConnectorInfo[] {
+    return CONNECTOR_CATALOG.map((m) => {
+      const configured = this.connectorConfigured(m.name);
+      const hasToken = this.connectorTokens.has(this.tokenKey(orgId, m.name));
+      let connected: boolean;
+      if (m.kind === "webhook") connected = true; // can always receive events
+      else if (m.kind === "outbound") connected = configured; // bot token in config
+      else connected = hasToken; // source: a connect-flow token exists
+      return {
+        name: m.name,
+        label: m.label,
+        category: m.category,
+        kind: m.kind,
+        configured,
+        connected,
+        demo: !connected,
+        lastSyncAt: this.connectorLastSync.get(this.tokenKey(orgId, m.name))
+      };
+    });
+  }
+
+  /** Start a real OAuth connect: the URL to redirect the user to (needs creds). */
+  connectorAuthorizeUrl(name: string, state: string): string {
+    const c = this.sourceConnectors.get(name) as (SourceConnector & { authorizeUrl?: (s: string) => string }) | undefined;
+    if (!c?.authorizeUrl) throw new Error(`connector ${name} does not support OAuth`);
+    if (!this.connectorConfigured(name)) throw new Error(`connector ${name} is not configured (missing OAuth creds)`);
+    return c.authorizeUrl(state);
+  }
+
+  /** Finish OAuth: exchange the code for a token and store it for the org. */
+  async connectorExchangeCode(name: string, orgId: string, code: string, redirectUri: string): Promise<void> {
+    const c = this.sourceConnectors.get(name) as (SourceConnector & { exchangeCode?: (code: string, r: string) => Promise<{ accessToken: string }> }) | undefined;
+    if (!c?.exchangeCode) throw new Error(`connector ${name} does not support OAuth`);
+    const token = await c.exchangeCode(code, redirectUri);
+    this.connectorTokens.set(this.tokenKey(orgId, name), token.accessToken);
+  }
+
+  /** Connect with a directly-supplied access token (dev / PAT path). */
+  connectConnectorToken(name: string, orgId: string, accessToken: string): void {
+    if (!this.sourceConnectors.has(name)) throw new Error(`source connector ${name} not registered`);
+    this.connectorTokens.set(this.tokenKey(orgId, name), accessToken);
+  }
+
+  /** Disconnect: drop the stored token for the org. */
+  disconnectConnector(name: string, orgId: string): void {
+    this.connectorTokens.delete(this.tokenKey(orgId, name));
+    this.connectorLastSync.delete(this.tokenKey(orgId, name));
+  }
+
+  /** Run a backfill for a connected source connector using its stored token. */
+  async backfillConnector(name: string, orgId: string, opts: { since?: string } = {}): Promise<{ ingested: number; deduped: number }> {
+    const token = this.connectorTokens.get(this.tokenKey(orgId, name));
+    if (!token) throw new Error(`connector ${name} is not connected for this org`);
+    const res = await this.backfillSource(name, token, { orgId, since: opts.since });
+    this.connectorLastSync.set(this.tokenKey(orgId, name), new Date().toISOString());
+    return res;
+  }
+
+  /* ---------------- memory graph (FR-3.3) ---------------- */
+
+  graphEntities(orgId: string) {
+    return this.brain.graphEntities(orgId);
+  }
+  graphNeighbors(orgId: string, name: string, asOf?: string) {
+    return this.brain.graphNeighbors(orgId, name, asOf ? { asOf } : undefined);
+  }
+
+  /* ---------------- tenancy (self-serve org creation) ---------------- */
+
+  /**
+   * Create a new org and make `adminId` its admin (FR-1.2). Wires the same
+   * authz tuples the demo seed uses so the org is immediately operable + isolated.
+   */
+  createOrg(orgId: string, adminId: string): { orgId: string } {
+    this.authz.write({ subject: adminId, relation: "admin", object: `org:${orgId}` });
+    this.authz.write({ subject: `org:${orgId}`, relation: "parent", object: `brain:${orgId}` });
+    this.audit.append(makeAuditRecord({
+      orgId,
+      actor: { type: "user", id: adminId },
+      action: "org.create",
+      resource: { type: "org", id: `org:${orgId}` },
+      decision: "allow"
+    }));
+    return { orgId };
   }
 }
 

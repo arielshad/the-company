@@ -46,10 +46,18 @@ export function buildServer(platform: CorePlatform, authenticator: Authenticator
     reply.code(status).send({ error: (err as Error).message });
   });
 
-  /* ---- session ---- */
+  /* ---- session / org ---- */
   app.get("/api/me", async (req) => {
     const p = principal(req);
     return { id: p.id, type: p.type, orgId: p.orgId, roles: p.roles, groups: p.groups };
+  });
+  // Self-serve org creation (FR-1.2): the caller becomes the new org's admin.
+  app.post("/api/orgs", async (req, reply) => {
+    const p = principal(req);
+    const body = z.object({ orgId: z.string().min(1).regex(/^[a-z0-9-]+$/) }).parse(req.body);
+    const res = platform.createOrg(body.orgId, p.id);
+    reply.code(201);
+    return res;
   });
 
   /* ---- brain ---- */
@@ -61,10 +69,58 @@ export function buildServer(platform: CorePlatform, authenticator: Authenticator
     return { hits: res.result };
   });
 
-  /* ---- connectors ---- */
+  /* ---- memory graph (FR-3.3) ---- */
+  app.get("/api/brain/graph/entities", async (req) => {
+    const p = principal(req);
+    return { entities: platform.graphEntities(p.orgId) };
+  });
+  app.get("/api/brain/graph/neighbors", async (req) => {
+    const p = principal(req);
+    const q = req.query as { entity?: string; asOf?: string };
+    if (!q.entity) throw Object.assign(new Error("entity required"), { status: 400 });
+    return { edges: platform.graphNeighbors(p.orgId, q.entity, q.asOf) };
+  });
+
+  /* ---- connectors / integrations ---- */
   app.get("/api/connectors", async (req) => {
+    const p = principal(req);
+    return { connectors: platform.listConnectors(p.orgId) };
+  });
+  // Start a real OAuth connect — returns the provider URL to redirect to.
+  app.get("/api/connectors/:name/authorize-url", async (req) => {
     principal(req);
-    return { connectors: platform.listConnectors() };
+    const name = (req.params as { name: string }).name;
+    const state = (req.query as { state?: string }).state ?? "state";
+    return { authorizeUrl: platform.connectorAuthorizeUrl(name, state) };
+  });
+  // Finish OAuth (provider redirected back with a code).
+  app.post("/api/connectors/:name/oauth", async (req) => {
+    const p = principal(req);
+    const name = (req.params as { name: string }).name;
+    const body = z.object({ code: z.string().min(1), redirectUri: z.string().min(1) }).parse(req.body);
+    await platform.connectorExchangeCode(name, p.orgId, body.code, body.redirectUri);
+    return { connected: true };
+  });
+  // Connect with a directly-supplied access token (dev / personal token).
+  app.post("/api/connectors/:name/connect", async (req) => {
+    const p = principal(req);
+    const name = (req.params as { name: string }).name;
+    const body = z.object({ accessToken: z.string().min(1) }).parse(req.body);
+    platform.connectConnectorToken(name, p.orgId, body.accessToken);
+    return { connected: true };
+  });
+  app.post("/api/connectors/:name/disconnect", async (req) => {
+    const p = principal(req);
+    platform.disconnectConnector((req.params as { name: string }).name, p.orgId);
+    return { connected: false };
+  });
+  // Trigger a backfill for a connected source connector (uses its stored token).
+  app.post("/api/connectors/:name/backfill", async (req) => {
+    const p = principal(req);
+    const name = (req.params as { name: string }).name;
+    const since = (req.body as { since?: string })?.since;
+    const result = await platform.backfillConnector(name, p.orgId, { since });
+    return result;
   });
   // Inbound connector event (e.g. Zoom transcript). The connector verifies its
   // own webhook signature (T4.4); the workflow runs as the run-as agent, not the
@@ -132,6 +188,10 @@ export function buildServer(platform: CorePlatform, authenticator: Authenticator
     const res = await platform.gateway.callTool(p, "workflow.trigger", { workflowId: id, data });
     if (!res.ok) throw Object.assign(new Error(res.error ?? "run failed"), { status: 403 });
     return res.result;
+  });
+  app.get("/api/runs", async (req) => {
+    const p = principal(req);
+    return { runs: platform.listRuns(p.orgId) };
   });
   app.get("/api/runs/:id", async (req) => {
     principal(req);

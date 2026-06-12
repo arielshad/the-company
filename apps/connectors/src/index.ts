@@ -212,3 +212,7 @@ export { SlackNotifier } from "./slack.js";
 // Jira outbound create-issue (T4.6)
 export type { JiraClientConfig, CreateIssueParams, CreateIssueResult } from "./jira.js";
 export { JiraClient } from "./jira.js";
+
+// Slack read source connector (T7.4)
+export type { SlackConnectorConfig, SlackChannel, SlackMessage, SlackNativePermissions } from "./slack-source.js";
+export { SlackSourceConnector, mapSlackAcl, slackMessageToIngest } from "./slack-source.js";

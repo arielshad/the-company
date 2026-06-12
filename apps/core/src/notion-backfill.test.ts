@@ -56,8 +56,16 @@ describe("Notion source connector: backfill → brain ingest", () => {
     ({ platform, user } = await makePlatform());
   });
 
-  it("registers Notion when configured and shows it as connected (not demo)", () => {
-    const notion = platform.connectors.find((c) => c.name === "notion");
+  it("shows Notion configured (OAuth creds present) but not yet connected without a token", () => {
+    const notion = platform.listConnectors("acme").find((c) => c.name === "notion");
+    expect(notion?.configured).toBe(true);
+    expect(notion?.connected).toBe(false); // no token connected yet
+    expect(notion?.demo).toBe(true);
+  });
+
+  it("connecting a token flips the connector to connected (not demo)", () => {
+    platform.connectConnectorToken("notion", "acme", "tok-xyz");
+    const notion = platform.listConnectors("acme").find((c) => c.name === "notion");
     expect(notion?.connected).toBe(true);
     expect(notion?.demo).toBe(false);
   });
@@ -98,11 +106,13 @@ describe("Notion not configured: shown as demo, not connected", () => {
     const config = loadConfig({ PERSISTENCE: "memory", AUTHZ_BACKEND: "memory", AUTH_DEV: "1", DEFAULT_ORG: "acme" } as NodeJS.ProcessEnv);
     const platform = new CorePlatform({ config, authz: createAuthz(config), ...(await createStores(config)) });
     platform.seedDemo();
-    const notion = platform.connectors.find((c) => c.name === "notion");
+    const list = platform.listConnectors("acme");
+    const notion = list.find((c) => c.name === "notion");
+    expect(notion?.configured).toBe(false);
     expect(notion?.connected).toBe(false);
     expect(notion?.demo).toBe(true);
-    // pure-fiction sources (no connector code) are never falsely "connected"
-    expect(platform.connectors.find((c) => c.name === "google_drive")?.connected).toBe(false);
-    expect(platform.connectors.find((c) => c.name === "github")?.connected).toBe(false);
+    // pure-fiction sources are never falsely "connected"
+    expect(list.find((c) => c.name === "google_drive")?.connected).toBe(false);
+    expect(list.find((c) => c.name === "github")?.connected).toBe(false);
   });
 });
