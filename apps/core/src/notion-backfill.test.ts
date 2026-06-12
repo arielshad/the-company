@@ -72,6 +72,9 @@ describe("Notion source connector: backfill → brain ingest", () => {
     // The ingested pages are searchable and carry Notion provenance.
     const hits = await platform.search(user, "SSO rollout");
     expect(hits.some((h) => h.title === "SSO rollout plan" && h.source.connector === "notion")).toBe(true);
+
+    // Backfill also indexes episodes into the temporal memory graph (FR-3.3).
+    expect(platform.brain.graphEntities("acme").length).toBeGreaterThan(0);
   });
 
   it("re-running the backfill is idempotent (same page id dedupes)", async () => {

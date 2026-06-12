@@ -13,9 +13,27 @@ import {
 } from "@companyos/auth";
 import { type AuditSink, makeAuditRecord } from "@companyos/telemetry";
 import { type Embedder, cosineVec } from "./embeddings.js";
+import {
+  type MemoryGraph,
+  type EntityExtractor,
+  type GraphEdge,
+  type GraphEntity,
+  type NeighborQuery,
+  DeterministicExtractor
+} from "./graph.js";
 
 export type { Embedder } from "./embeddings.js";
 export { OpenAiCompatibleEmbedder, HashingEmbedder, cosineVec } from "./embeddings.js";
+export type {
+  MemoryGraph,
+  EntityExtractor,
+  GraphEdge,
+  GraphEntity,
+  NeighborQuery,
+  Extraction,
+  AddEpisodeInput
+} from "./graph.js";
+export { InMemoryMemoryGraph, DeterministicExtractor } from "./graph.js";
 
 /**
  * Company Brain (docs/02 §6, docs/04 §2; PHASE-02).
@@ -155,8 +173,40 @@ export class BrainService {
     private audit?: AuditSink,
     private store: MemoryStore = new InMemoryMemoryStore(),
     /** Optional real embedder; when set, search scores with vector cosine. */
-    private embedder?: Embedder
+    private embedder?: Embedder,
+    /** Optional temporal memory graph (FR-3.3); when set, ingest indexes episodes. */
+    private graph?: MemoryGraph,
+    /** Entity/relation extractor for the graph; defaults to the deterministic one. */
+    private extractor: EntityExtractor = new DeterministicExtractor()
   ) {}
+
+  /**
+   * Index a document/episode into the temporal memory graph (FR-3.3). Async
+   * because a real extractor calls a model; a no-op when no graph is wired.
+   * Kept separate from the sync `ingest` so the ingest path stays synchronous.
+   */
+  async indexEpisode(input: {
+    orgId: string;
+    text: string;
+    at: string;
+    source?: SourceRef;
+    seedEntities?: { name: string; type: string }[];
+  }): Promise<{ entities: number; facts: number } | undefined> {
+    if (!this.graph) return undefined;
+    return this.graph.addEpisode(
+      { orgId: input.orgId, text: input.text, at: input.at, source: input.source, seedEntities: input.seedEntities },
+      this.extractor
+    );
+  }
+
+  /** Time-travel query over the graph: facts touching an entity, as of an event time. */
+  graphNeighbors(orgId: string, name: string, q?: NeighborQuery): GraphEdge[] {
+    return this.graph?.neighbors(orgId, name, q) ?? [];
+  }
+
+  graphEntities(orgId: string): GraphEntity[] {
+    return this.graph?.entitiesByOrg(orgId) ?? [];
+  }
 
   private brainObject(orgId: string): string {
     return `brain:${orgId}`;

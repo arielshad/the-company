@@ -5,7 +5,7 @@
  * with all authorization + audit enforced here. The HTTP API and MCP server are
  * thin transports over this object.
  */
-import { BrainService, OpenAiCompatibleEmbedder, type MemoryStore, type IngestInput, type SearchHit } from "@companyos/brain";
+import { BrainService, OpenAiCompatibleEmbedder, InMemoryMemoryGraph, type MemoryStore, type IngestInput, type SearchHit } from "@companyos/brain";
 import { GovernanceService, type ApprovalRequest } from "@companyos/governance";
 import { AgentRegistry } from "@companyos/agent-registry";
 import { SkillRegistry } from "@companyos/skill-registry";
@@ -29,6 +29,7 @@ import { canvasToDsl, type Canvas, type Workflow } from "@companyos/dsl";
 import type { CoreConfig } from "./config.js";
 import { createAgentHandlers } from "./agent-provider.js";
 import { createLlmJudges } from "./judges.js";
+import { createEntityExtractor } from "./entity-extractor.js";
 import { createEffects, effectClientsFromConfig, type EffectHandlers } from "./effects.js";
 import { demoPrincipals, flagshipWorkflow, seedDemoOrg } from "./seed.js";
 
@@ -79,7 +80,9 @@ export class CorePlatform {
     const agentHandlers = deps.agentHandlers ?? createAgentHandlers({ apiKey: deps.config.anthropicApiKey });
 
     const embedder = this.config.embeddings ? new OpenAiCompatibleEmbedder(this.config.embeddings) : undefined;
-    this.brain = new BrainService(this.authz, this.audit, deps.memoryStore, embedder);
+    const graph = new InMemoryMemoryGraph();
+    const extractor = createEntityExtractor({ apiKey: this.config.anthropicApiKey });
+    this.brain = new BrainService(this.authz, this.audit, deps.memoryStore, embedder, graph, extractor);
     const judges = createLlmJudges({ apiKey: this.config.anthropicApiKey });
     this.governance = new GovernanceService(this.authz, this.audit, this.budget, judges);
     this.agents = new AgentRegistry(this.budget);
@@ -136,7 +139,16 @@ export class CorePlatform {
     for await (const payload of gen) {
       const r = this.brain.ingest(payload);
       ingested++;
-      if (r.deduped) deduped++;
+      if (r.deduped) {
+        deduped++;
+      } else {
+        await this.brain.indexEpisode({
+          orgId: ctx.orgId,
+          text: payload.content,
+          at: new Date().toISOString(),
+          source: payload.source
+        });
+      }
     }
     return { ingested, deduped };
   }
@@ -152,6 +164,16 @@ export class CorePlatform {
   async handleConnectorEvent(name: string, orgId: string, raw: unknown): Promise<{ itemId: string; deduped: boolean; runId?: string; status?: string }> {
     const result = this.connectorRegistry.handle(name, orgId, raw);
     const ingest = this.brain.ingest(result.ingest);
+    // Index the episode into the temporal memory graph (FR-3.3). Idempotent on
+    // re-ingest; non-blocking to the trigger logic below if it fails.
+    if (!ingest.deduped) {
+      await this.brain.indexEpisode({
+        orgId,
+        text: result.ingest.content,
+        at: new Date().toISOString(),
+        source: result.ingest.source
+      });
+    }
     let runId: string | undefined;
     let status: string | undefined;
     const agent = this.runAsAgent;
