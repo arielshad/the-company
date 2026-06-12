@@ -78,7 +78,7 @@ code + `docs/mvp-completion/HANDOFF.md §0.5`. ✅ done&wired · 🔌 gated · �
 | T7.2 Gmail connector | 🔌 | real connector + registered (gated on `GMAIL_*`); owner-only ACL, never public |
 | T7.3 Google Calendar connector | 🔌 | real connector + registered (gated on `GOOGLE_CALENDAR_*`); attendee/organizer ACL |
 | T7.4 Slack read connector | ⬜ | outbound Slack is done (T4.5); read side pending |
-| T7.5 Graphiti temporal memory graph | ⬜ | large/novel — own PR (entity/edge + bitemporal graph behind MemoryStore) |
+| T7.5 Graphiti temporal memory graph | 🔌 | bitemporal entity/edge graph (`brain/graph.ts`) wired into ingest; as-of time-travel queries; LLM extractor gated on `ANTHROPIC_API_KEY`, deterministic offline |
 | T7.6 self-serve multi-tenant org creation | ⬜ | single hardcoded demo org today |
 
 ---
