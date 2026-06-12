@@ -191,6 +191,8 @@ export class CorePlatform {
   async handleConnectorEvent(name: string, orgId: string, raw: unknown): Promise<{ itemId: string; deduped: boolean; runId?: string; status?: string }> {
     const result = this.connectorRegistry.handle(name, orgId, raw);
     const ingest = this.brain.ingest(result.ingest);
+    // A received event marks a webhook connector as live (honest status).
+    this.connectorLastSync.set(this.tokenKey(orgId, name), new Date().toISOString());
     // Index the episode into the temporal memory graph (FR-3.3). Idempotent on
     // re-ingest; non-blocking to the trigger logic below if it fails.
     if (!ingest.deduped) {
@@ -326,10 +328,14 @@ export class CorePlatform {
     return CONNECTOR_CATALOG.map((m) => {
       const configured = this.connectorConfigured(m.name);
       const hasToken = this.connectorTokens.has(this.tokenKey(orgId, m.name));
+      const hasReceived = this.connectorLastSync.has(this.tokenKey(orgId, m.name));
       let connected: boolean;
-      if (m.kind === "webhook") connected = true; // can always receive events
-      else if (m.kind === "outbound") connected = configured; // bot token in config
-      else connected = hasToken; // source: a connect-flow token exists
+      // webhook: only "connected" once it has actually received an event (no
+      // fictional green dot — MVP-GAP §8); outbound: a bot token is in config;
+      // source: a connect-flow token is stored for this org.
+      if (m.kind === "webhook") connected = hasReceived;
+      else if (m.kind === "outbound") connected = configured;
+      else connected = hasToken;
       return {
         name: m.name,
         label: m.label,
