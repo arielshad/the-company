@@ -54,9 +54,10 @@ pnpm --filter @companyos/web start  # serves the built SPA + BFF on :3000
 ## Web UI (apps/web)
 
 > **Superseded (2026-06-12) — see the status banner above.** The platform now
-> runs server-side in `apps/core`; the web app is becoming a thin API client
-> (T0.4). The description below uses "real" to mean *real service instances* —
-> but those instances run on in-memory stand-ins, so this is **not** mock-free.
+> runs server-side in `apps/core`; the web app is a **thin client over the core
+> HTTP API** (T0.4 done) — the in-browser platform described below was deleted.
+> Everything (brain, graph, integrations, agents, workflows, governance, org) is
+> viewable + manageable from the UI against the real server.
 
 A full single-page app (Vite + React + React Flow) that drives the
 in-browser platform. `src/app/lib/platform.ts` instantiates the

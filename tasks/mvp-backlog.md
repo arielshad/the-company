@@ -40,7 +40,7 @@ code + `docs/mvp-completion/HANDOFF.md §0.5`. ✅ done&wired · 🔌 gated · �
 | --- | --- | --- |
 | T0.1 core monolith + infra reconcile | ✅ | `apps/core`; infra collapsed to core/web/openfga |
 | T0.2/T0.3 OpenAPI + Fastify API | ✅ | typed endpoint per `platform.ts` method, via gateway authz/audit |
-| T0.4 web → typed API client | ⬜ | web still drives in-browser platform |
+| T0.4 web → typed API client | ✅ | web is a thin client over the core API (`apps/web/src/app/lib/api.ts`); in-browser platform deleted. Full management UI: Integrations (connect/backfill/disconnect/test-event), Memory Graph (as-of), Brain, Agents, Workflows+runs, Governance, Skills, Settings(create-org) |
 | T0.5/T0.6 Dockerfiles + compose + CI | ✅ | core image, compose-smoke green |
 | T0.7 shep-infra apply (Argo, setup, pgvector enable) | ⬜ | glue written (PR #20); not applied → prod can't boot on PG yet |
 | T1.1/T1.2 PG schema, RLS, audit chain | ✅ | verified vs real PG16+pgvector |
@@ -77,9 +77,9 @@ code + `docs/mvp-completion/HANDOFF.md §0.5`. ✅ done&wired · 🔌 gated · �
 | T7.1 GitHub connector | 🔌 | real connector + registered (gated on `GITHUB_*`); ACL data-leak found in review **fixed** (restricted-wins) + regression-tested |
 | T7.2 Gmail connector | 🔌 | real connector + registered (gated on `GMAIL_*`); owner-only ACL, never public |
 | T7.3 Google Calendar connector | 🔌 | real connector + registered (gated on `GOOGLE_CALENDAR_*`); attendee/organizer ACL |
-| T7.4 Slack read connector | ⬜ | outbound Slack is done (T4.5); read side pending |
-| T7.5 Graphiti temporal memory graph | 🔌 | bitemporal entity/edge graph (`brain/graph.ts`) wired into ingest; as-of time-travel queries; LLM extractor gated on `ANTHROPIC_API_KEY`, deterministic offline |
-| T7.6 self-serve multi-tenant org creation | ⬜ | single hardcoded demo org today |
+| T7.4 Slack read connector | 🔌 | real `SlackSourceConnector` (channels/history, channel-membership ACL, never public); registered + connectable |
+| T7.5 Graphiti temporal memory graph | 🔌 | bitemporal entity/edge graph (`brain/graph.ts`) wired into ingest; as-of time-travel queries + Memory Graph UI; LLM extractor gated on `ANTHROPIC_API_KEY`, deterministic offline |
+| T7.6 self-serve multi-tenant org creation | 🔌 | `POST /api/orgs` (caller becomes admin) + Settings "Create organization" UI |
 
 ---
 
