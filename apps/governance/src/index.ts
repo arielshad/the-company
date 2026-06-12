@@ -7,7 +7,7 @@ import {
   makeAuditRecord,
   meterCostUsd
 } from "@companyos/telemetry";
-import { runSuite, type EvalInput, type SuiteResult } from "@companyos/eval-service";
+import { runSuite, type EvalInput, type SuiteResult, type Evaluator } from "@companyos/eval-service";
 
 /**
  * Governance (docs/04): the enforcement layer — authorization + audit on every
@@ -34,7 +34,9 @@ export class GovernanceService {
   constructor(
     private authz: AuthzEngine,
     private audit: AuditSink,
-    private budget: BudgetTracker
+    private budget: BudgetTracker,
+    /** Optional per-eval overrides (e.g. budgeted LLM judges) injected by the server. */
+    private evaluators?: Record<string, Evaluator>
   ) {}
 
   /** Authorize an action and audit the decision (allow/deny). */
@@ -165,11 +167,12 @@ export class GovernanceService {
 
   /* ---------------- Eval gating (FR-8.2/8.3) ---------------- */
 
-  runEvalGate(orgId: string, input: EvalInput, policy: EvalPolicy): SuiteResult {
-    const result = runSuite(input, {
+  async runEvalGate(orgId: string, input: EvalInput, policy: EvalPolicy): Promise<SuiteResult> {
+    const result = await runSuite(input, {
       evals: policy.evals,
       thresholds: policy.thresholds,
-      gate: policy.gate
+      gate: policy.gate,
+      evaluators: this.evaluators
     });
     this.audit.append(
       makeAuditRecord({

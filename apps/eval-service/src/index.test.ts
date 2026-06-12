@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { runSuite, sourceCoverage, policy } from "./index.js";
+import { runSuite, sourceCoverage, policy, type Evaluator } from "./index.js";
 
 describe("sourceCoverage", () => {
   it("scores 1 when every claim is cited", () => {
@@ -30,8 +30,8 @@ describe("runSuite gating", () => {
     allowedTools: ["slack.notify"]
   };
 
-  it("passes and does not block when thresholds met", () => {
-    const r = runSuite(goodInput, {
+  it("passes and does not block when thresholds met", async () => {
+    const r = await runSuite(goodInput, {
       evals: ["source_coverage", "factuality", "policy"],
       thresholds: { source_coverage: 0.7, factuality: 0.7, policy: 1 },
       gate: "block"
@@ -40,8 +40,8 @@ describe("runSuite gating", () => {
     expect(r.blocked).toBe(false);
   });
 
-  it("blocks external effects when an eval fails under gate=block", () => {
-    const r = runSuite(
+  it("blocks external effects when an eval fails under gate=block", async () => {
+    const r = await runSuite(
       { claims: ["uncited claim about revenue"], citations: [] },
       { evals: ["source_coverage"], thresholds: { source_coverage: 0.7 }, gate: "block" }
     );
@@ -50,8 +50,8 @@ describe("runSuite gating", () => {
     expect(r.failures).toContain("source_coverage");
   });
 
-  it("advisory gate records failure without blocking", () => {
-    const r = runSuite(
+  it("advisory gate records failure without blocking", async () => {
+    const r = await runSuite(
       { claims: ["uncited"], citations: [] },
       { evals: ["source_coverage"], thresholds: { source_coverage: 0.7 }, gate: "advisory" }
     );
@@ -59,8 +59,24 @@ describe("runSuite gating", () => {
     expect(r.blocked).toBe(false);
   });
 
-  it("flags unknown evaluators", () => {
-    const r = runSuite({}, { evals: ["does_not_exist"], thresholds: {} });
+  it("flags unknown evaluators", async () => {
+    const r = await runSuite({}, { evals: ["does_not_exist"], thresholds: {} });
     expect(r.failures).toContain("unknown_eval:does_not_exist");
+  });
+
+  it("awaits an injected async evaluator (LLM-judge seam) and gates on its score", async () => {
+    // A budgeted LLM judge is async; runSuite must await it and apply the threshold.
+    const asyncJudge: Evaluator = async () => ({ id: "factuality", score: 0.2, detail: "llm" });
+    const r = await runSuite(
+      { claims: ["x"], citations: [{ sourceRef: "z", quote: "x" }] },
+      {
+        evals: ["factuality"],
+        thresholds: { factuality: 0.7 },
+        gate: "block",
+        evaluators: { factuality: asyncJudge }
+      }
+    );
+    expect(r.results[0]?.score).toBe(0.2); // the injected judge overrode the heuristic
+    expect(r.blocked).toBe(true);
   });
 });

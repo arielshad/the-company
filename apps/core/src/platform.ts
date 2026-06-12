@@ -28,6 +28,7 @@ import type { AuditRecord } from "@companyos/schemas";
 import { canvasToDsl, type Canvas, type Workflow } from "@companyos/dsl";
 import type { CoreConfig } from "./config.js";
 import { createAgentHandlers } from "./agent-provider.js";
+import { createLlmJudges } from "./judges.js";
 import { createEffects, effectClientsFromConfig, type EffectHandlers } from "./effects.js";
 import { demoPrincipals, flagshipWorkflow, seedDemoOrg } from "./seed.js";
 
@@ -79,7 +80,8 @@ export class CorePlatform {
 
     const embedder = this.config.embeddings ? new OpenAiCompatibleEmbedder(this.config.embeddings) : undefined;
     this.brain = new BrainService(this.authz, this.audit, deps.memoryStore, embedder);
-    this.governance = new GovernanceService(this.authz, this.audit, this.budget);
+    const judges = createLlmJudges({ apiKey: this.config.anthropicApiKey });
+    this.governance = new GovernanceService(this.authz, this.audit, this.budget, judges);
     this.agents = new AgentRegistry(this.budget);
     this.skills = new SkillRegistry();
     this.engine = new WorkflowEngine({

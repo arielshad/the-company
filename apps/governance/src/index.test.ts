@@ -73,9 +73,9 @@ describe("budget enforcement", () => {
 });
 
 describe("eval gate", () => {
-  it("blocks on failing eval under gate=block", () => {
+  it("blocks on failing eval under gate=block", async () => {
     const { gov } = make();
-    const r = gov.runEvalGate(
+    const r = await gov.runEvalGate(
       ORG,
       { claims: ["uncited claim"], citations: [] },
       { evals: ["source_coverage"], gate: "block", thresholds: { source_coverage: 0.7 } }

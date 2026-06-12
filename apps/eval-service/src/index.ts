@@ -27,14 +27,15 @@ export interface EvalResult {
   detail?: string;
 }
 
-export type Evaluator = (input: EvalInput) => EvalResult;
+/** An evaluator may be a deterministic heuristic (sync) or a budgeted LLM judge (async). */
+export type Evaluator = (input: EvalInput) => EvalResult | Promise<EvalResult>;
 
 function tokenize(s: string): string[] {
   return s.toLowerCase().match(/[a-z0-9]+/g) ?? [];
 }
 
 /** Fraction of claims that are supported by at least one citation quote. */
-export const sourceCoverage: Evaluator = (input) => {
+export const sourceCoverage = (input: EvalInput): EvalResult => {
   const claims = input.claims ?? [];
   const citations = input.citations ?? [];
   if (claims.length === 0) return { id: "source_coverage", score: 1, detail: "no claims" };
@@ -53,14 +54,14 @@ export const sourceCoverage: Evaluator = (input) => {
 };
 
 /** Heuristic factuality: claims' key terms must appear in supporting citations. */
-export const factuality: Evaluator = (input) => {
+export const factuality = (input: EvalInput): EvalResult => {
   const cov = sourceCoverage(input);
   // factuality is at least as strict as coverage; penalize uncited claims harder
   return { id: "factuality", score: cov.score, detail: cov.detail };
 };
 
 /** Policy: output must only use allowed tools (no forbidden external effects). */
-export const policy: Evaluator = (input) => {
+export const policy = (input: EvalInput): EvalResult => {
   const used = input.toolsUsed ?? [];
   const allowed = new Set(input.allowedTools ?? []);
   if (used.length === 0) return { id: "policy", score: 1 };
@@ -73,7 +74,7 @@ export const policy: Evaluator = (input) => {
 };
 
 /** Tone: penalize obviously unprofessional tokens (placeholder heuristic). */
-export const tone: Evaluator = (input) => {
+export const tone = (input: EvalInput): EvalResult => {
   const bad = ["stupid", "idiot", "hate", "damn"];
   const toks = tokenize(input.text ?? "");
   const hits = toks.filter((t) => bad.includes(t)).length;
@@ -81,7 +82,7 @@ export const tone: Evaluator = (input) => {
 };
 
 /** Hallucination risk: high when there is text but no citations. */
-export const hallucinationRisk: Evaluator = (input) => {
+export const hallucinationRisk = (input: EvalInput): EvalResult => {
   const hasText = (input.text ?? "").length > 0 || (input.claims ?? []).length > 0;
   const hasCites = (input.citations ?? []).length > 0;
   const score = !hasText ? 1 : hasCites ? 0.9 : 0.4;
@@ -100,6 +101,11 @@ export interface SuiteOptions {
   evals: string[];
   thresholds: Record<string, number>;
   gate?: "advisory" | "block";
+  /**
+   * Per-eval overrides (e.g. a budgeted LLM judge for factuality/hallucination
+   * injected by the server). Falls back to the deterministic EVALUATORS.
+   */
+  evaluators?: Record<string, Evaluator>;
 }
 
 export interface SuiteResult {
@@ -109,18 +115,22 @@ export interface SuiteResult {
   failures: string[];
 }
 
-/** Run a set of evaluators and apply thresholds + gating. */
-export function runSuite(input: EvalInput, opts: SuiteOptions): SuiteResult {
+/**
+ * Run a set of evaluators and apply thresholds + gating. Async because an
+ * injected evaluator (LLM judge) may call a model; deterministic heuristics
+ * resolve immediately. Per-eval overrides come from `opts.evaluators`.
+ */
+export async function runSuite(input: EvalInput, opts: SuiteOptions): Promise<SuiteResult> {
   const results: EvalResult[] = [];
   const failures: string[] = [];
   for (const id of opts.evals) {
-    const ev = EVALUATORS[id];
+    const ev = opts.evaluators?.[id] ?? EVALUATORS[id];
     if (!ev) {
       failures.push(`unknown_eval:${id}`);
       results.push({ id, score: 0, detail: "unknown evaluator" });
       continue;
     }
-    const r = ev(input);
+    const r = await ev(input);
     results.push(r);
     const threshold = opts.thresholds[id] ?? 0;
     if (r.score < threshold) failures.push(id);

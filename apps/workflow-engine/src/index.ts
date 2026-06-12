@@ -273,7 +273,7 @@ export class WorkflowEngine {
       case "eval": {
         const policy = (node as any).policy ?? wf.evalPolicy;
         const input = this.buildEvalInput(run, ctx);
-        const result = this.deps.governance.runEvalGate(run.orgId, input, policy);
+        const result = await this.deps.governance.runEvalGate(run.orgId, input, policy);
         record({ passed: result.passed, blocked: result.blocked, failures: result.failures });
         if (result.blocked) return { stop: true, failed: true };
         return { nextId: firstNext };

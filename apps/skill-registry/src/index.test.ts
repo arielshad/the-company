@@ -48,10 +48,10 @@ describe("register & sync", () => {
 });
 
 describe("promotion gate (FR-5.7)", () => {
-  it("promotes to active when evals pass", () => {
+  it("promotes to active when evals pass", async () => {
     const r = reg();
     const s = r.register(base, goodPkg);
-    const res = r.promote(s.id, {
+    const res = await r.promote(s.id, {
       claims: ["prioritize SSO"],
       citations: [{ sourceRef: "z", quote: "we will prioritize SSO" }]
     });
@@ -59,10 +59,10 @@ describe("promotion gate (FR-5.7)", () => {
     expect(r.get(s.id)?.status).toBe("active");
   });
 
-  it("blocks promotion when evals fail", () => {
+  it("blocks promotion when evals fail", async () => {
     const r = reg();
     const s = r.register(base, goodPkg);
-    const res = r.promote(s.id, { claims: ["uncited claim"], citations: [] });
+    const res = await r.promote(s.id, { claims: ["uncited claim"], citations: [] });
     expect(res.promoted).toBe(false);
     expect(res.failures).toContain("source_coverage");
     expect(r.get(s.id)?.status).toBe("draft");

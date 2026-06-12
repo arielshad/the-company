@@ -76,11 +76,11 @@ export class SkillRegistry {
    * Promotion gate: run the skill's eval suite over the candidate output.
    * Promotes draft -> active only if the suite passes (FR-5.7, T05.7).
    */
-  promote(id: string, candidate: EvalInput): { promoted: boolean; failures: string[] } {
+  async promote(id: string, candidate: EvalInput): Promise<{ promoted: boolean; failures: string[] }> {
     const skill = this.skills.get(id);
     if (!skill) throw new Error(`skill ${id} not found`);
     if (!skill.evalSuite) throw new Error("skill has no eval suite");
-    const result = runSuite(candidate, skill.evalSuite);
+    const result = await runSuite(candidate, skill.evalSuite);
     if (result.passed) {
       skill.status = "active";
       skill.changelog.push(`${skill.version}: promoted to active (evals passed)`);
