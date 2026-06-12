@@ -45,6 +45,8 @@ export interface CoreConfig {
   /** Default org for single-tenant MVP wiring + dev. */
   defaultOrg: string;
   appUrl: string;
+  /** Periodic incremental connector sync interval (ms). 0 disables the scheduler. */
+  connectorSyncIntervalMs: number;
 }
 
 function envBool(v: string | undefined, dflt: boolean): boolean {
@@ -109,6 +111,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
         ? { baseUrl: env.EMBEDDINGS_BASE_URL.replace(/\/$/, ""), model: env.EMBEDDINGS_MODEL, apiKey: env.EMBEDDINGS_API_KEY }
         : undefined,
     defaultOrg: env.DEFAULT_ORG ?? "acme",
-    appUrl: env.APP_URL ?? "http://localhost:8080"
+    appUrl: env.APP_URL ?? "http://localhost:8080",
+    // Default 15m; the entrypoint only starts the scheduler when > 0, so tests
+    // (which construct CorePlatform directly) never spin a timer.
+    connectorSyncIntervalMs: Number(env.CONNECTOR_SYNC_INTERVAL_MS ?? 900_000)
   };
 }

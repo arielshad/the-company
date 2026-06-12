@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Plug, RefreshCw, Link2, Unplug, Send, KeyRound } from "lucide-react";
 import { Shell } from "../components/Shell.js";
 import { PageHeader, Stat, Field, Modal, EmptyState, timeAgo } from "../components/ui.js";
@@ -14,6 +14,10 @@ const SAMPLE_ZOOM = {
 };
 
 function StatusBadge({ c }: { c: Connector }) {
+  // Sync state wins over the connection badge: the user cares whether data is
+  // actually flowing, not just that a token is stored (docs/08-ux-experience-guidelines.md).
+  if (c.sync?.status === "syncing") return (<><span className="badge-dot amber" /><span className="badge amber">Importing…</span></>);
+  if (c.sync?.status === "error") return (<><span className="badge-dot red" /><span className="badge red">Sync failed</span></>);
   if (c.connected) return (<><span className="badge-dot green" /><span className="badge green">Connected</span></>);
   if (c.configured) return (<><span className="badge-dot amber" /><span className="badge amber">Configured</span></>);
   return (<><span className="badge-dot" /><span className="badge">Demo</span></>);
@@ -33,10 +37,19 @@ export function IntegrationsPage() {
   const connected = list.filter((c) => c.connected).length;
   const target = list.find((c) => c.name === connectName);
 
+  // While any connector is importing, poll so the live count + final state
+  // (synced / failed) appear without the user reloading.
+  const anySyncing = list.some((c) => c.sync?.status === "syncing");
+  useEffect(() => {
+    if (!anySyncing) return;
+    const t = setInterval(refetch, 2000);
+    return () => clearInterval(t);
+  }, [anySyncing, refetch]);
+
   async function doConnectToken() {
     if (!connectName || !token.trim()) return;
     if (await connect.run(connectName, token.trim())) {
-      pushToast(`${target?.label} connected`);
+      pushToast(`Importing ${target?.label} into the brain…`);
       markDone("connected_source");
       setConnectName(null);
       setToken("");
@@ -117,7 +130,18 @@ export function IntegrationsPage() {
               </div>
 
               <div className="row" style={{ gap: 6, alignItems: "center" }}><StatusBadge c={c} /></div>
-              {c.connected && c.lastSyncAt && (
+              {c.sync?.status === "syncing" && (
+                <div className="faint" style={{ fontSize: 11 }}>Importing… {c.sync.ingested} item{c.sync.ingested === 1 ? "" : "s"} so far</div>
+              )}
+              {c.sync?.status === "synced" && (
+                <div className="faint" style={{ fontSize: 11 }}>
+                  {c.sync.ingested} item{c.sync.ingested === 1 ? "" : "s"} in the brain{c.lastSyncAt ? ` · synced ${timeAgo(c.lastSyncAt)}` : ""}
+                </div>
+              )}
+              {c.sync?.status === "error" && (
+                <div className="faint" style={{ fontSize: 11, color: "var(--danger)" }}>Couldn’t sync: {c.sync.error}</div>
+              )}
+              {c.connected && !c.sync && c.lastSyncAt && (
                 <div className="faint" style={{ fontSize: 11 }}>Synced {timeAgo(c.lastSyncAt)}</div>
               )}
 
@@ -129,8 +153,14 @@ export function IntegrationsPage() {
                 )}
                 {c.kind === "source" && c.connected && (
                   <>
-                    <button className="btn sm" style={{ flex: 1 }} disabled={backfill.pending} onClick={() => doBackfill(c.name, c.label)}>
-                      <RefreshCw size={13} /> {backfill.pending ? "Syncing…" : "Backfill"}
+                    <button
+                      className="btn sm"
+                      style={{ flex: 1 }}
+                      disabled={backfill.pending || c.sync?.status === "syncing"}
+                      onClick={() => doBackfill(c.name, c.label)}
+                    >
+                      <RefreshCw size={13} />{" "}
+                      {c.sync?.status === "syncing" ? "Importing…" : c.sync?.status === "error" ? "Retry" : "Backfill"}
                     </button>
                     <button className="btn ghost sm danger" disabled={disconnect.pending} onClick={() => doDisconnect(c.name, c.label)}>
                       <Unplug size={13} /> Disconnect
@@ -183,8 +213,8 @@ export function IntegrationsPage() {
               />
             </Field>
             <p className="faint" style={{ fontSize: 12, lineHeight: 1.5 }}>
-              The token is stored server-side for this org and used to back-fill {target.label} into the brain.
-              It is never sent back to the browser.
+              The token is stored server-side for this org. We start importing {target.label} into the brain
+              right away — watch the card for live progress. It is never sent back to the browser.
             </p>
             {connect.error && <div style={{ color: "var(--danger)", fontSize: 12 }}>{connect.error}</div>}
           </div>

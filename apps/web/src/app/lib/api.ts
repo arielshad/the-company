@@ -7,6 +7,15 @@
 
 export interface Me { id: string; type: string; orgId: string; roles: string[]; groups: string[] }
 export type ConnectorKind = "source" | "outbound" | "webhook";
+export type ConnectorSyncStatus = "syncing" | "synced" | "error";
+export interface ConnectorSyncState {
+  status: ConnectorSyncStatus;
+  ingested: number;
+  deduped: number;
+  startedAt: string;
+  finishedAt?: string;
+  error?: string;
+}
 export interface Connector {
   name: string;
   label: string;
@@ -16,6 +25,7 @@ export interface Connector {
   connected: boolean;
   demo: boolean;
   lastSyncAt?: string;
+  sync?: ConnectorSyncState;
 }
 export interface SearchHit { id: string; title: string; snippet: string; score: number; type: string; source: { connector: string; externalId: string; url?: string } }
 export interface GraphEntity { id: string; name: string; type: string; firstSeen: string; lastSeen: string }

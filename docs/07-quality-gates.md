@@ -36,6 +36,7 @@ apply to every task and every tier.
 [ ] Red test captured, then green (evidence in PR)
 [ ] BDD scenario(s) for the FR pass
 [ ] e2e passes with artifacts (if user-facing)
+[ ] UX gate met (if user-facing): see 08-ux-experience-guidelines.md — promises wired, all states built, flow walked from zero
 [ ] Coverage ≥ gate, no decrease
 [ ] Lint / typecheck / format clean
 [ ] Contracts verified (if boundary touched)

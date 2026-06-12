@@ -30,6 +30,10 @@ async function main(): Promise<void> {
     app.log.warn({ err: (err as Error).message }, "MCP server not mounted");
   }
 
+  // Periodic incremental connector sync (FR-2.2). Opt-out with
+  // CONNECTOR_SYNC_INTERVAL_MS=0; the timer is unref'd so it never blocks exit.
+  platform.startConnectorScheduler(config.connectorSyncIntervalMs);
+
   await app.listen({ port: config.port, host: config.host });
   app.log.info(`core listening on ${config.host}:${config.port} (persistence=${config.persistence}, authz=${config.authzBackend})`);
 }

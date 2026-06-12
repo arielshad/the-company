@@ -11,18 +11,9 @@ import { AgentRegistry } from "@companyos/agent-registry";
 import { SkillRegistry } from "@companyos/skill-registry";
 import { WorkflowEngine, type RunRecord, type AgentHandler } from "@companyos/workflow-engine";
 import { McpGateway } from "@companyos/gateway";
-import {
-  cleanTranscript,
-  ConnectorRegistry,
-  ZoomConnector,
-  NotionConnector,
-  GoogleDriveConnector,
-  GitHubConnector,
-  GmailConnector,
-  GoogleCalendarConnector,
-  SlackSourceConnector
-} from "@companyos/connectors";
+import { cleanTranscript, ConnectorRegistry, ZoomConnector } from "@companyos/connectors";
 import type { SourceConnector, SyncContext } from "@companyos/connectors";
+import { CONNECTORS, CONNECTOR_CATALOG, connectorDef, type ConnectorKind } from "./connectors.js";
 import { BudgetTracker, makeAuditRecord, type AuditSink } from "@companyos/telemetry";
 import type { AuthzEngine, Principal } from "@companyos/auth";
 import type { AuditRecord } from "@companyos/schemas";
@@ -34,7 +25,27 @@ import { createEntityExtractor } from "./entity-extractor.js";
 import { createEffects, effectClientsFromConfig, type EffectHandlers } from "./effects.js";
 import { demoPrincipals, flagshipWorkflow, seedDemoOrg } from "./seed.js";
 
-export type ConnectorKind = "source" | "outbound" | "webhook";
+export type { ConnectorKind };
+export { CONNECTOR_CATALOG };
+
+/**
+ * Lifecycle of a source connector's ingestion, surfaced to the UI so the
+ * "connect → importing → first results" journey has truthful states instead of
+ * a frozen green dot (docs/08-ux-experience-guidelines.md). `syncing` carries a
+ * live `ingested` count; `error` carries a message + a retryable affordance.
+ */
+export type ConnectorSyncStatus = "syncing" | "synced" | "error";
+
+export interface ConnectorSyncState {
+  status: ConnectorSyncStatus;
+  /** Items ingested so far (live during `syncing`, final on `synced`). */
+  ingested: number;
+  deduped: number;
+  startedAt: string;
+  finishedAt?: string;
+  /** Present only when status is `error`. */
+  error?: string;
+}
 
 export interface ConnectorInfo {
   name: string;
@@ -46,21 +57,11 @@ export interface ConnectorInfo {
   /** A usable token/route exists for this org (real link, not demo). */
   connected: boolean;
   lastSyncAt?: string;
+  /** Live ingestion state for source connectors (undefined until first sync). */
+  sync?: ConnectorSyncState;
   /** True when the row is demo-only, not a live external link (trust UX). */
   demo: boolean;
 }
-
-/** The full integration catalog surfaced + managed in the UI. */
-export const CONNECTOR_CATALOG: { name: string; label: string; category: string; kind: ConnectorKind }[] = [
-  { name: "notion", label: "Notion", category: "Docs & wiki", kind: "source" },
-  { name: "google_drive", label: "Google Drive", category: "Files", kind: "source" },
-  { name: "github", label: "GitHub", category: "Code & PRs", kind: "source" },
-  { name: "gmail", label: "Gmail", category: "Email", kind: "source" },
-  { name: "google_calendar", label: "Google Calendar", category: "Calendar", kind: "source" },
-  { name: "slack", label: "Slack", category: "Chat", kind: "source" },
-  { name: "zoom", label: "Zoom", category: "Meetings", kind: "webhook" },
-  { name: "jira", label: "Jira", category: "Tickets", kind: "outbound" }
-];
 
 export interface CorePlatformDeps {
   config: CoreConfig;
@@ -69,6 +70,8 @@ export interface CorePlatformDeps {
   memoryStore: MemoryStore;
   agentHandlers?: Record<string, AgentHandler>;
   effects?: EffectHandlers;
+  /** Default fetch for connector backfills (injectable for tests; else global). */
+  fetchFn?: typeof fetch;
 }
 
 export class CorePlatform {
@@ -91,6 +94,14 @@ export class CorePlatform {
   private readonly connectorTokens = new Map<string, string>();
   /** Per-(org|connector) last successful sync timestamp. */
   private readonly connectorLastSync = new Map<string, string>();
+  /** Per-(org|connector) live ingestion state (syncing/synced/error) for the UI. */
+  private readonly connectorSync = new Map<string, ConnectorSyncState>();
+  /** Per-(org|connector) in-flight sync, so concurrent triggers coalesce. */
+  private readonly connectorSyncInFlight = new Map<string, Promise<void>>();
+  /** Periodic incremental-sync timer (started only by the entrypoint). */
+  private syncTimer?: ReturnType<typeof setInterval>;
+  /** Default fetch for backfills (injectable for tests). */
+  private readonly defaultFetch?: typeof fetch;
   /** Agent principal workflows run as when triggered by a connector event. */
   private runAsAgent?: Principal;
 
@@ -98,6 +109,7 @@ export class CorePlatform {
     this.config = deps.config;
     this.authz = deps.authz;
     this.audit = deps.audit;
+    this.defaultFetch = deps.fetchFn;
     this.effects = deps.effects ?? createEffects(effectClientsFromConfig(this.config));
     const agentHandlers = deps.agentHandlers ?? createAgentHandlers({ apiKey: deps.config.anthropicApiKey });
 
@@ -129,17 +141,13 @@ export class CorePlatform {
       defaultOrg: this.config.defaultOrg
     });
     this.connectorRegistry.register(new ZoomConnector());
-    // Source connectors are ALWAYS registered so a token from the connect flow
-    // enables backfill even in dev (real OAuth `authorizeUrl`/`exchangeCode`
-    // additionally needs creds in config; backfill only needs the access token).
-    const oauth = (c?: { clientId: string; clientSecret: string; redirectUri: string }) =>
-      c ?? { clientId: "", clientSecret: "", redirectUri: this.config.appUrl };
-    this.sourceConnectors.set("notion", new NotionConnector(oauth(this.config.notion)));
-    this.sourceConnectors.set("google_drive", new GoogleDriveConnector(oauth(this.config.googleDrive)));
-    this.sourceConnectors.set("github", new GitHubConnector(oauth(this.config.github)));
-    this.sourceConnectors.set("gmail", new GmailConnector(oauth(this.config.gmail)));
-    this.sourceConnectors.set("google_calendar", new GoogleCalendarConnector(oauth(this.config.googleCalendar)));
-    this.sourceConnectors.set("slack", new SlackSourceConnector(oauth(undefined)));
+    // Source connectors are ALWAYS registered (from the single CONNECTORS table)
+    // so a token from the connect flow enables backfill even in dev — real OAuth
+    // `authorizeUrl`/`exchangeCode` additionally needs creds in config, but
+    // backfill only needs the access token. One table → no per-connector wiring.
+    for (const def of CONNECTORS) {
+      if (def.create) this.sourceConnectors.set(def.name, def.create(this.config));
+    }
   }
 
   /**
@@ -151,11 +159,17 @@ export class CorePlatform {
   async backfillSource(
     name: string,
     accessToken: string,
-    opts: { orgId?: string; since?: string; fetchFn?: typeof fetch } = {}
+    opts: {
+      orgId?: string;
+      since?: string;
+      fetchFn?: typeof fetch;
+      /** Called after each item so callers can surface live progress. */
+      onProgress?: (p: { ingested: number; deduped: number }) => void;
+    } = {}
   ): Promise<{ ingested: number; deduped: number }> {
     const connector = this.sourceConnectors.get(name);
     if (!connector) throw new Error(`source connector ${name} not registered`);
-    const ctx: SyncContext = { orgId: opts.orgId ?? this.config.defaultOrg, accessToken, fetch: opts.fetchFn };
+    const ctx: SyncContext = { orgId: opts.orgId ?? this.config.defaultOrg, accessToken, fetch: opts.fetchFn ?? this.defaultFetch };
     const gen =
       opts.since && connector.incremental
         ? connector.incremental(ctx, opts.since)
@@ -176,6 +190,7 @@ export class CorePlatform {
           source: payload.source
         });
       }
+      opts.onProgress?.({ ingested, deduped });
     }
     return { ingested, deduped };
   }
@@ -304,19 +319,9 @@ export class CorePlatform {
   }
   /* ---------------- integrations (connect / backfill / status) ---------------- */
 
-  /** OAuth/API creds present in config for a connector. */
+  /** OAuth/API creds present in config for a connector (from the CONNECTORS table). */
   private connectorConfigured(name: string): boolean {
-    switch (name) {
-      case "notion": return Boolean(this.config.notion);
-      case "google_drive": return Boolean(this.config.googleDrive);
-      case "github": return Boolean(this.config.github);
-      case "gmail": return Boolean(this.config.gmail);
-      case "google_calendar": return Boolean(this.config.googleCalendar);
-      case "slack": return Boolean(this.config.slack);
-      case "jira": return Boolean(this.config.jira);
-      case "zoom": return true; // webhook connector, no OAuth handshake
-      default: return false;
-    }
+    return connectorDef(name)?.configured(this.config) ?? false;
   }
 
   private tokenKey(orgId: string, name: string): string {
@@ -344,7 +349,8 @@ export class CorePlatform {
         configured,
         connected,
         demo: !connected,
-        lastSyncAt: this.connectorLastSync.get(this.tokenKey(orgId, m.name))
+        lastSyncAt: this.connectorLastSync.get(this.tokenKey(orgId, m.name)),
+        sync: this.connectorSync.get(this.tokenKey(orgId, m.name))
       };
     });
   }
@@ -363,27 +369,118 @@ export class CorePlatform {
     if (!c?.exchangeCode) throw new Error(`connector ${name} does not support OAuth`);
     const token = await c.exchangeCode(code, redirectUri);
     this.connectorTokens.set(this.tokenKey(orgId, name), token.accessToken);
+    // Connecting a source implies you want its data — kick off the first
+    // backfill immediately so "Connect" actually fills the brain (auto-backfill
+    // on connect; docs/08-ux-experience-guidelines.md). Non-blocking: the UI
+    // polls the `syncing → synced` state.
+    void this.triggerSync(name, orgId);
   }
 
   /** Connect with a directly-supplied access token (dev / PAT path). */
   connectConnectorToken(name: string, orgId: string, accessToken: string): void {
     if (!this.sourceConnectors.has(name)) throw new Error(`source connector ${name} not registered`);
     this.connectorTokens.set(this.tokenKey(orgId, name), accessToken);
+    void this.triggerSync(name, orgId);
   }
 
-  /** Disconnect: drop the stored token for the org. */
+  /** Disconnect: drop the stored token + all sync state for the org. */
   disconnectConnector(name: string, orgId: string): void {
-    this.connectorTokens.delete(this.tokenKey(orgId, name));
-    this.connectorLastSync.delete(this.tokenKey(orgId, name));
+    const key = this.tokenKey(orgId, name);
+    this.connectorTokens.delete(key);
+    this.connectorLastSync.delete(key);
+    this.connectorSync.delete(key);
   }
 
-  /** Run a backfill for a connected source connector using its stored token. */
+  /**
+   * Run a backfill for a connected source connector and wait for it. Routes
+   * through the tracked sync path, so it coalesces with any in-flight
+   * auto-backfill and surfaces the same `syncing/synced/error` state to the UI.
+   * Re-throws on failure so the manual "Backfill" button can show the error.
+   */
   async backfillConnector(name: string, orgId: string, opts: { since?: string } = {}): Promise<{ ingested: number; deduped: number }> {
-    const token = this.connectorTokens.get(this.tokenKey(orgId, name));
-    if (!token) throw new Error(`connector ${name} is not connected for this org`);
-    const res = await this.backfillSource(name, token, { orgId, since: opts.since });
-    this.connectorLastSync.set(this.tokenKey(orgId, name), new Date().toISOString());
-    return res;
+    const key = this.tokenKey(orgId, name);
+    if (!this.connectorTokens.has(key)) throw new Error(`connector ${name} is not connected for this org`);
+    await this.triggerSync(name, orgId, opts);
+    const state = this.connectorSync.get(key);
+    if (state?.status === "error") throw new Error(state.error ?? `${name} sync failed`);
+    return { ingested: state?.ingested ?? 0, deduped: state?.deduped ?? 0 };
+  }
+
+  /**
+   * Start (or join, if already running) a tracked sync for a connected source.
+   * Non-blocking; returns the in-flight promise so callers/tests can await it.
+   * Concurrent triggers for the same (org, connector) coalesce onto one run.
+   */
+  triggerSync(name: string, orgId: string, opts: { since?: string } = {}): Promise<void> {
+    const key = this.tokenKey(orgId, name);
+    if (!this.sourceConnectors.has(name) || !this.connectorTokens.has(key)) return Promise.resolve();
+    const inFlight = this.connectorSyncInFlight.get(key);
+    if (inFlight) return inFlight;
+    const run = this.runSync(name, orgId, opts).finally(() => this.connectorSyncInFlight.delete(key));
+    this.connectorSyncInFlight.set(key, run);
+    return run;
+  }
+
+  /** Execute one sync, recording syncing → synced/error state as it goes. */
+  private async runSync(name: string, orgId: string, opts: { since?: string }): Promise<void> {
+    const key = this.tokenKey(orgId, name);
+    const token = this.connectorTokens.get(key);
+    if (!token) return;
+    const startedAt = new Date().toISOString();
+    const state: ConnectorSyncState = { status: "syncing", ingested: 0, deduped: 0, startedAt };
+    this.connectorSync.set(key, state);
+    try {
+      const res = await this.backfillSource(name, token, {
+        orgId,
+        since: opts.since,
+        onProgress: (p) => {
+          state.ingested = p.ingested;
+          state.deduped = p.deduped;
+        }
+      });
+      const finishedAt = new Date().toISOString();
+      this.connectorSync.set(key, { status: "synced", ingested: res.ingested, deduped: res.deduped, startedAt, finishedAt });
+      this.connectorLastSync.set(key, finishedAt);
+    } catch (err) {
+      this.connectorSync.set(key, {
+        status: "error",
+        ingested: state.ingested,
+        deduped: state.deduped,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        error: (err as Error).message
+      });
+    }
+  }
+
+  /**
+   * Begin periodic incremental sync of every connected source connector
+   * (FR-2.2). Opt-in: only the entrypoint calls this, so tests never spin a
+   * timer. Idempotent; the timer is unref'd so it never holds the process open.
+   */
+  startConnectorScheduler(intervalMs: number): void {
+    if (this.syncTimer || intervalMs <= 0) return;
+    this.syncTimer = setInterval(() => void this.syncAllConnected(), intervalMs);
+    this.syncTimer.unref?.();
+  }
+
+  /** Stop the periodic sync timer (clean shutdown / tests). */
+  stopConnectorScheduler(): void {
+    if (this.syncTimer) {
+      clearInterval(this.syncTimer);
+      this.syncTimer = undefined;
+    }
+  }
+
+  /** Incrementally sync every (org, connector) that has a stored token. */
+  private async syncAllConnected(): Promise<void> {
+    for (const key of this.connectorTokens.keys()) {
+      const sep = key.indexOf("|");
+      const orgId = key.slice(0, sep);
+      const name = key.slice(sep + 1);
+      const since = this.connectorLastSync.get(key);
+      await this.triggerSync(name, orgId, since ? { since } : {});
+    }
   }
 
   /* ---------------- memory graph (FR-3.3) ---------------- */
