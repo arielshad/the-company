@@ -1,34 +1,4 @@
 import { useSyncExternalStore } from "react";
-import { platform } from "./platform.js";
-
-/** Tiny reactive layer: components subscribe and re-render on mutations. */
-const listeners = new Set<() => void>();
-let version = 0;
-function emit() {
-  version++;
-  listeners.forEach((l) => l());
-}
-function subscribe(cb: () => void) {
-  listeners.add(cb);
-  return () => listeners.delete(cb);
-}
-
-/** Subscribe a component to platform changes. Returns the live platform. */
-export function usePlatform() {
-  useSyncExternalStore(
-    subscribe,
-    () => version,
-    () => version
-  );
-  return platform;
-}
-
-/** Run a mutation then notify subscribers. */
-export async function mutate<T>(fn: () => T | Promise<T>): Promise<T> {
-  const r = await fn();
-  emit();
-  return r;
-}
 
 /* ---------------- toasts ---------------- */
 export interface Toast {

@@ -1,15 +1,10 @@
 import { useState } from "react";
-import { Bot, Plus, Play, Archive } from "lucide-react";
+import { Bot, Plus } from "lucide-react";
 import { Shell } from "../components/Shell.js";
 import { PageHeader, Field, EmptyState, Modal } from "../components/ui.js";
-import { usePlatform, mutate, pushToast, markDone } from "../lib/store.js";
-import type { Agent } from "@companyos/schemas";
-
-interface RunTaskState {
-  agent: Agent;
-  task: string;
-  running: boolean;
-}
+import { pushToast, markDone } from "../lib/store.js";
+import { useApi, useAction } from "../lib/hooks.js";
+import { api, type Agent } from "../lib/api.js";
 
 const ROLE_OPTIONS = ["CEO", "PM", "Engineer", "Researcher", "Sales", "Support"] as const;
 
@@ -26,71 +21,49 @@ function roleBadgeClass(role: string): string {
 }
 
 export function AgentsPage() {
-  const p = usePlatform();
-  const orgId = p.user.orgId;
+  const agentsState = useApi(() => api.agents(), []);
+  const orgChartState = useApi(() => api.orgChart() as Promise<Array<{ agent: Agent; reports: Agent[] }>>, []);
+  const budgetsState = useApi(() => api.budgets(), []);
 
   const [showCreate, setShowCreate] = useState(false);
   const [name, setName] = useState("");
   const [role, setRole] = useState<string>("PM");
   const [goal, setGoal] = useState("");
-  const [budget, setBudget] = useState("");
-  const [saving, setSaving] = useState(false);
 
-  const [runState, setRunState] = useState<RunTaskState | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const createAction = useAction(api.createAgent);
 
-  const allAgents = p.agents.list(orgId);
+  const allAgents = agentsState.data ?? [];
   const agents = allAgents.filter((a) => a.status !== "archived");
   const archivedAgents = allAgents.filter((a) => a.status === "archived");
 
+  const budgets = budgetsState.data ?? [];
+  function spentFor(agentId: string): number {
+    return budgets.find((b) => b.agentId === agentId)?.spentUsd ?? 0;
+  }
+
+  const orgChart = orgChartState.data ?? [];
+  const managers = orgChart.filter((n) => n.reports.length > 0);
+
   async function handleCreate() {
     if (!name.trim()) return;
-    setSaving(true);
-    try {
-      await mutate(() =>
-        p.agents.create({
-          orgId,
-          name: name.trim(),
-          role,
-          goal: goal.trim(),
-          budgetMonthlyUsd: budget ? Number(budget) : undefined
-        })
-      );
-      pushToast("Agent created", "ok");
-      markDone("created_agent");
-      setShowCreate(false);
-      setName("");
-      setRole("PM");
-      setGoal("");
-      setBudget("");
-    } finally {
-      setSaving(false);
+    const ok = await createAction.run({ name: name.trim(), role, goal: goal.trim() || undefined });
+    if (!ok) {
+      pushToast(createAction.error ?? "Failed to create agent", "error");
+      return;
     }
+    pushToast("Agent created", "ok");
+    markDone("created_agent");
+    setShowCreate(false);
+    setName("");
+    setRole("PM");
+    setGoal("");
+    agentsState.refetch();
+    orgChartState.refetch();
+    budgetsState.refetch();
   }
 
-  async function handleRunTask() {
-    if (!runState || !runState.task.trim()) return;
-    setSubmitting(true);
-    try {
-      const r = await mutate(() => p.agents.runManualTask(runState.agent.id, runState.task));
-      if (r.status === "budget_exceeded") {
-        pushToast("Budget exceeded — run blocked", "error");
-      } else {
-        pushToast(`Done ($${r.costUsd.toFixed(4)}): ${r.output}`);
-      }
-      setRunState(null);
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function handleArchive(agent: Agent) {
-    await mutate(() => p.agents.archive(agent.id));
-    pushToast(`${agent.name} archived`);
-  }
-
-  const orgChart = p.agents.orgChart(orgId);
-  const managers = orgChart.filter((n) => n.reports.length > 0);
+  const loading = agentsState.loading;
+  const error = agentsState.error;
 
   return (
     <Shell title="Agents" sub="Your AI workforce — managed like employees">
@@ -104,7 +77,13 @@ export function AgentsPage() {
         }
       />
 
-      {agents.length === 0 && archivedAgents.length === 0 ? (
+      {error && (
+        <div className="badge red" style={{ marginBottom: 12 }}>{error}</div>
+      )}
+
+      {loading ? (
+        <div className="faint">Loading…</div>
+      ) : agents.length === 0 && archivedAgents.length === 0 ? (
         <EmptyState
           icon={<Bot size={32} style={{ opacity: 0.35 }} />}
           title="No agents yet"
@@ -119,7 +98,7 @@ export function AgentsPage() {
         <>
           <div className="grid cols-3">
             {agents.map((agent) => {
-              const spent = p.budgetSpent(agent.id);
+              const spent = spentFor(agent.id);
               const cap = agent.budgetMonthlyUsd;
               const pct = cap > 0 ? Math.min(100, (spent / cap) * 100) : 0;
               return (
@@ -147,20 +126,6 @@ export function AgentsPage() {
                     <div className="progress">
                       <div style={{ width: `${pct}%`, background: pct >= 100 ? "var(--red, #e55)" : pct >= 80 ? "var(--amber, #f90)" : "var(--accent, #4a9eff)" }} />
                     </div>
-                  </div>
-                  <div className="row" style={{ gap: 8, marginTop: 2 }}>
-                    <button
-                      className="btn sm"
-                      onClick={() => setRunState({ agent, task: "", running: false })}
-                    >
-                      <Play size={13} /> Run task
-                    </button>
-                    <button
-                      className="btn ghost sm danger"
-                      onClick={() => handleArchive(agent)}
-                    >
-                      <Archive size={13} /> Archive
-                    </button>
                   </div>
                 </div>
               );
@@ -228,8 +193,8 @@ export function AgentsPage() {
           footer={
             <>
               <button className="btn ghost" onClick={() => setShowCreate(false)}>Cancel</button>
-              <button className="btn primary" onClick={handleCreate} disabled={saving || !name.trim()}>
-                {saving ? "Creating…" : "Create agent"}
+              <button className="btn primary" onClick={handleCreate} disabled={createAction.pending || !name.trim()}>
+                {createAction.pending ? "Creating…" : "Create agent"}
               </button>
             </>
           }
@@ -259,47 +224,7 @@ export function AgentsPage() {
                 rows={3}
               />
             </Field>
-            <Field label="Monthly budget (USD)">
-              <input
-                className="input"
-                type="number"
-                placeholder="e.g. 100"
-                value={budget}
-                onChange={(e) => setBudget(e.target.value)}
-                min={0}
-              />
-            </Field>
           </div>
-        </Modal>
-      )}
-
-      {runState && (
-        <Modal
-          title={`Run task — ${runState.agent.name}`}
-          onClose={() => setRunState(null)}
-          footer={
-            <>
-              <button className="btn ghost" onClick={() => setRunState(null)}>Cancel</button>
-              <button
-                className="btn primary"
-                onClick={handleRunTask}
-                disabled={submitting || !runState.task.trim()}
-              >
-                {submitting ? "Running…" : "Run"}
-              </button>
-            </>
-          }
-        >
-          <Field label="Task">
-            <textarea
-              className="textarea"
-              placeholder="Describe the task for this agent…"
-              value={runState.task}
-              onChange={(e) => setRunState({ ...runState, task: e.target.value })}
-              rows={4}
-              autoFocus
-            />
-          </Field>
         </Modal>
       )}
     </Shell>

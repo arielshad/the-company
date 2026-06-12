@@ -18,11 +18,16 @@ import {
 import "@xyflow/react/dist/style.css";
 import { CheckCircle2, AlertTriangle, PlayCircle, Code2, Plus, Trash2, MousePointer2 } from "lucide-react";
 import { Shell } from "../components/Shell.js";
-import { usePlatform, mutate, pushToast, markDone } from "../lib/store.js";
+import { pushToast, markDone } from "../lib/store.js";
+import { useApi } from "../lib/hooks.js";
+import { api, type RunRecord } from "../lib/api.js";
 import { NODE_TYPES, TRIGGER_KINDS, validateWorkflow, type Workflow } from "@companyos/dsl";
-import { ZoomConnector } from "@companyos/connectors";
 
-const SAMPLE = {
+/** Flagship workflow id — matched first, then falls back to the first workflow. */
+const FLAGSHIP_ID = "wf_zoom_to_brain";
+
+/** Sample trigger data mirroring a Zoom transcript event (built inline, no connector). */
+const SAMPLE: Record<string, unknown> = {
   meetingId: "zoom-builder-1",
   topic: "Acme x Globex — Q3 renewal",
   transcript:
@@ -128,9 +133,42 @@ function JsonField({ value, onCommit }: { value: unknown; onCommit: (v: unknown)
   );
 }
 
-export function WorkflowsPage() {
-  const p = usePlatform();
-  const wf = p.workflows.get("wf_zoom_to_brain")!;
+function statusBadge(status: string): string {
+  if (status === "completed" || status === "succeeded") return "badge green";
+  if (status === "paused" || status === "running" || status === "pending") return "badge amber";
+  if (status === "failed" || status === "rejected") return "badge red";
+  return "badge blue";
+}
+
+/** Compact recent-runs panel; refetched after a run is triggered. */
+function RecentRuns({ runs, loading, error }: { runs?: RunRecord[]; loading: boolean; error?: string }) {
+  return (
+    <div className="card mt-3">
+      <div className="stat-label mb-2">Recent runs</div>
+      {loading && !runs ? (
+        <div className="faint" style={{ fontSize: 12.5 }}>Loading…</div>
+      ) : error ? (
+        <div className="faint" style={{ color: "var(--danger)", fontSize: 12.5 }}>{error}</div>
+      ) : runs && runs.length > 0 ? (
+        <div className="list">
+          {runs.map((r) => (
+            <div key={r.id} className="list-item row">
+              <span className="mono" style={{ fontSize: 12 }}>{r.id}</span>
+              <span className={statusBadge(r.status)}>{r.status}</span>
+              <div className="spacer" />
+              <span className="faint" style={{ fontSize: 12 }}>{r.startedAt ?? "—"}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="faint" style={{ fontSize: 12.5 }}>No runs yet — click Run to trigger the flagship workflow.</p>
+      )}
+    </div>
+  );
+}
+
+/** Canvas builder rendered once the workflow has loaded. */
+function Builder({ wf }: { wf: Workflow }) {
   const initial = useMemo(() => layout(wf), [wf]);
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
@@ -139,6 +177,9 @@ export function WorkflowsPage() {
   const [selNode, setSelNode] = useState<string | null>(null);
   const [selEdge, setSelEdge] = useState<string | null>(null);
   const [n, setN] = useState(0);
+  const [running, setRunning] = useState(false);
+
+  const runsState = useApi(() => api.runs(), []);
 
   const onConnect = useCallback((c: Connection) => setEdges((eds) => addEdge({ ...c, animated: true }, eds)), [setEdges]);
 
@@ -184,27 +225,32 @@ export function WorkflowsPage() {
   };
 
   const run = async () => {
-    const ev = new ZoomConnector().handle(p.user.orgId, SAMPLE);
-    const res = await mutate(() => p.gateway.callTool(p.opsAgent, "workflow.trigger", { workflowId: wf.id, data: ev.trigger.data }));
-    const out = res as { ok: boolean; result?: { runId: string; status: string }; error?: string };
-    markDone("ran_workflow");
-    if (!out.ok) return pushToast(`Run failed: ${out.error}`, "error");
-    if (out.result?.status === "paused") pushToast("Run paused — approval required. Open Governance to approve.");
-    else pushToast(`Run ${out.result?.status}`);
+    setRunning(true);
+    try {
+      const res = (await api.runWorkflow(wf.id, SAMPLE)) as { runId?: string; status?: string };
+      markDone("ran_workflow");
+      if (res.status === "paused") pushToast("Run paused — approval required. Open Governance to approve.");
+      else pushToast(`Run ${res.status ?? "started"}`);
+      runsState.refetch();
+    } catch (e) {
+      pushToast(`Run failed: ${e instanceof Error ? e.message : String(e)}`, "error");
+    } finally {
+      setRunning(false);
+    }
   };
 
   const selectedNode = nodes.find((x) => x.id === selNode);
   const selectedEdge = edges.find((e) => e.id === selEdge);
 
   return (
-    <Shell title="Workflow builder" sub="Compose agentic workflows on a canvas — compiled to a validated, versioned spec">
+    <>
       <div className="row mb-3">
         <span className="badge blue">{wf.name}</span>
         <span className="faint" style={{ fontSize: 12 }}>v{wf.version} · {wf.state}</span>
         <div className="spacer" />
         <button className="btn" onClick={() => setShowDsl((s) => !s)}><Code2 size={15} /> {showDsl ? "Hide" : "View"} DSL</button>
         <button className="btn" onClick={validate}><CheckCircle2 size={15} /> Validate</button>
-        <button className="btn primary" onClick={run}><PlayCircle size={15} /> Run</button>
+        <button className="btn primary" onClick={run} disabled={running}><PlayCircle size={15} /> {running ? "Running…" : "Run"}</button>
       </div>
 
       {result && (
@@ -328,10 +374,42 @@ export function WorkflowsPage() {
         </div>
       )}
 
+      <RecentRuns runs={runsState.data} loading={runsState.loading} error={runsState.error} />
+
       <p className="faint mt-3" style={{ fontSize: 12.5 }}>
         Running triggers the workflow through the MCP gateway as the ops agent; customer-sensitive runs pause for human{" "}
         <Link to="/governance" style={{ color: "var(--brand)" }}>approval</Link>.
       </p>
+    </>
+  );
+}
+
+export function WorkflowsPage() {
+  const { data: workflows, loading, error } = useApi(() => api.workflows(), []);
+
+  // The list returns full DSL workflows; pick the flagship by id, else the first.
+  const wf = useMemo(() => {
+    if (!workflows) return undefined;
+    return (workflows.find((w) => w.id === FLAGSHIP_ID) ?? workflows[0]) as Workflow | undefined;
+  }, [workflows]);
+
+  return (
+    <Shell title="Workflow builder" sub="Compose agentic workflows on a canvas — compiled to a validated, versioned spec">
+      {loading && !workflows ? (
+        <div className="faint" style={{ fontSize: 13 }}>Loading…</div>
+      ) : error ? (
+        <div className="card" style={{ borderColor: "rgba(246,104,94,0.4)" }}>
+          <div className="row" style={{ color: "var(--danger)" }}><AlertTriangle size={16} /> Failed to load workflows — {error}</div>
+        </div>
+      ) : wf ? (
+        <Builder wf={wf} />
+      ) : (
+        <div className="empty" style={{ padding: "40px 8px" }}>
+          <MousePointer2 size={26} />
+          <div style={{ fontWeight: 600, color: "var(--text-dim)" }}>No workflows yet</div>
+          <div style={{ fontSize: 12.5 }}>Publish a workflow to start composing on the canvas.</div>
+        </div>
+      )}
     </Shell>
   );
 }

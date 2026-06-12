@@ -10,14 +10,18 @@ import {
   Plug,
   Settings,
   HelpCircle,
-  Search
+  Search,
+  Network
 } from "lucide-react";
-import { startOnboarding, usePlatform } from "../lib/store.js";
+import { startOnboarding } from "../lib/store.js";
+import { useApi } from "../lib/hooks.js";
+import { api } from "../lib/api.js";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, section: "Overview", end: true },
   { to: "/brain", label: "Company Brain", icon: Brain, section: "Knowledge" },
-  { to: "/connectors", label: "Connectors", icon: Plug, section: "Knowledge" },
+  { to: "/graph", label: "Memory Graph", icon: Network, section: "Knowledge" },
+  { to: "/integrations", label: "Integrations", icon: Plug, section: "Knowledge" },
   { to: "/agents", label: "Agents", icon: Bot, section: "Workforce" },
   { to: "/workflows", label: "Workflows", icon: Workflow, section: "Workforce" },
   { to: "/skills", label: "Skills", icon: Sparkles, section: "Workforce" },
@@ -26,9 +30,11 @@ const NAV = [
 ];
 
 export function Shell({ title, sub, children }: { title: string; sub?: string; children: ReactNode }) {
-  const p = usePlatform();
-  const pending = p.listPendingApprovals().length;
+  const approvals = useApi(() => api.approvals(), []);
+  const me = useApi(() => api.me(), []);
+  const pending = approvals.data?.length ?? 0;
   const sections = [...new Set(NAV.map((n) => n.section))];
+  const orgId = me.data?.orgId ?? "—";
 
   return (
     <div className="shell">
@@ -61,7 +67,7 @@ export function Shell({ title, sub, children }: { title: string; sub?: string; c
             <div className="avatar" style={{ width: 30, height: 30 }}>A</div>
             <div style={{ fontSize: 12.5 }}>
               <div style={{ fontWeight: 600 }}>Alice</div>
-              <div className="faint">admin · acme</div>
+              <div className="faint">admin · {orgId}</div>
             </div>
           </div>
         </div>

@@ -11,8 +11,8 @@ import {
   PlayCircle,
   ArrowRight
 } from "lucide-react";
-import { completeOnboarding, markDone, mutate, pushToast, useOnboarding, usePlatform } from "../lib/store.js";
-import { ZoomConnector } from "@companyos/connectors";
+import { completeOnboarding, markDone, pushToast, useOnboarding } from "../lib/store.js";
+import { api } from "../lib/api.js";
 
 const SAMPLE_TRANSCRIPT = {
   meetingId: "zoom-onboarding-1",
@@ -35,28 +35,36 @@ interface Step {
 }
 
 function LiveDemo() {
-  const p = usePlatform();
   const [phase, setPhase] = useState<"idle" | "running" | "awaiting" | "done">("idle");
-  const [runId, setRunId] = useState<string | null>(null);
 
   const run = async () => {
     setPhase("running");
-    const ev = new ZoomConnector().handle(p.user.orgId, SAMPLE_TRANSCRIPT);
-    const res = await mutate(() =>
-      p.gateway.callTool(p.opsAgent, "workflow.trigger", { workflowId: "wf_zoom_to_brain", data: ev.trigger.data })
-    );
-    const out = (res as any).result as { runId: string; status: string };
-    setRunId(out.runId);
-    setPhase(out.status === "paused" ? "awaiting" : "done");
+    try {
+      // Drives the REAL flagship server-side: webhook → ingest → extract → eval
+      // gate → (pause for) approval. Customer-sensitive runs pause here.
+      const res = await api.webhook("zoom", SAMPLE_TRANSCRIPT);
+      if (res.status === "paused") {
+        setPhase("awaiting");
+      } else {
+        markDone("ran_workflow");
+        setPhase("done");
+      }
+    } catch (e) {
+      pushToast(e instanceof Error ? e.message : "Run failed", "error");
+      setPhase("idle");
+    }
   };
 
   const approve = async () => {
-    const pending = p.listPendingApprovals();
-    if (pending[0]) p.governance.decide(pending[0].id, p.user, "approved", "Reviewed — ok to record");
-    if (runId) await mutate(() => p.engine.resume(runId));
-    markDone("ran_workflow");
-    pushToast("Workflow completed — memory written, ticket created, Slack notified");
-    setPhase("done");
+    try {
+      const pending = await api.approvals();
+      if (pending[0]) await api.decideApproval(pending[0].id, "approved", "Reviewed — ok to record");
+      markDone("ran_workflow");
+      pushToast("Workflow resumed — memory written, ticket created, Slack notified");
+      setPhase("done");
+    } catch (e) {
+      pushToast(e instanceof Error ? e.message : "Approve failed", "error");
+    }
   };
 
   return (
@@ -66,7 +74,7 @@ function LiveDemo() {
         <div style={{ fontWeight: 600, fontSize: 13.5 }}>Live demo · Zoom transcript → company brain</div>
       </div>
       <p className="faint mt-2" style={{ fontSize: 12.5 }}>
-        This runs the <b>real</b> workflow: extract → eval gate → approval → memory write → Jira task → Slack.
+        This runs the <b>real</b> workflow on the server: extract → eval gate → approval → memory write → Jira task → Slack.
       </p>
 
       {phase === "idle" && (
@@ -91,13 +99,9 @@ function LiveDemo() {
       {phase === "done" && (
         <div className="mt-3">
           <div className="badge green mb-2"><CheckCircle2 size={13} /> Completed</div>
-          <div className="grid cols-3 mt-2">
-            <div className="card center"><div className="stat" style={{ fontSize: 22 }}>{p.brain.count("acme")}</div><div className="faint" style={{ fontSize: 11 }}>memories</div></div>
-            <div className="card center"><div className="stat" style={{ fontSize: 22 }}>{p.tickets.length}</div><div className="faint" style={{ fontSize: 11 }}>Jira tickets</div></div>
-            <div className="card center"><div className="stat" style={{ fontSize: 22 }}>{p.slack.length}</div><div className="faint" style={{ fontSize: 11 }}>Slack posts</div></div>
-          </div>
-          <p className="faint mt-3" style={{ fontSize: 12.5 }}>
-            Every step was authorized and written to an immutable audit log. Search “Globex SSO” in the Brain to find the new memory with its source.
+          <p className="faint mt-2" style={{ fontSize: 12.5 }}>
+            Every step was authorized and written to an immutable audit log. Search “Globex SSO” in the
+            Company Brain to find the new memory with its source, or open Governance for the audit trail.
           </p>
         </div>
       )}
