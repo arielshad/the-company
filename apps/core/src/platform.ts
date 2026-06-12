@@ -5,7 +5,7 @@
  * with all authorization + audit enforced here. The HTTP API and MCP server are
  * thin transports over this object.
  */
-import { BrainService, type MemoryStore, type IngestInput, type SearchHit } from "@companyos/brain";
+import { BrainService, OpenAiCompatibleEmbedder, type MemoryStore, type IngestInput, type SearchHit } from "@companyos/brain";
 import { GovernanceService, type ApprovalRequest } from "@companyos/governance";
 import { AgentRegistry } from "@companyos/agent-registry";
 import { SkillRegistry } from "@companyos/skill-registry";
@@ -68,7 +68,8 @@ export class CorePlatform {
     this.effects = deps.effects ?? createEffects(effectClientsFromConfig(this.config));
     const agentHandlers = deps.agentHandlers ?? createAgentHandlers({ apiKey: deps.config.anthropicApiKey });
 
-    this.brain = new BrainService(this.authz, this.audit, deps.memoryStore);
+    const embedder = this.config.embeddings ? new OpenAiCompatibleEmbedder(this.config.embeddings) : undefined;
+    this.brain = new BrainService(this.authz, this.audit, deps.memoryStore, embedder);
     this.governance = new GovernanceService(this.authz, this.audit, this.budget);
     this.agents = new AgentRegistry(this.budget);
     this.skills = new SkillRegistry();

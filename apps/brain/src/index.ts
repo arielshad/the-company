@@ -12,6 +12,10 @@ import {
   sourceAclAdmits
 } from "@companyos/auth";
 import { type AuditSink, makeAuditRecord } from "@companyos/telemetry";
+import { type Embedder, cosineVec } from "./embeddings.js";
+
+export type { Embedder } from "./embeddings.js";
+export { OpenAiCompatibleEmbedder, HashingEmbedder, cosineVec } from "./embeddings.js";
 
 /**
  * Company Brain (docs/02 §6, docs/04 §2; PHASE-02).
@@ -36,6 +40,8 @@ export interface BrainItem {
   relatedPeople?: string[];
   supersededBy?: string;
   expiresAt?: string;
+  /** Cached dense embedding (populated lazily on first search when an Embedder is wired). */
+  embedding?: number[];
 }
 
 export interface MemoryStore {
@@ -147,7 +153,9 @@ export class BrainService {
   constructor(
     private authz: AuthzEngine,
     private audit?: AuditSink,
-    private store: MemoryStore = new InMemoryMemoryStore()
+    private store: MemoryStore = new InMemoryMemoryStore(),
+    /** Optional real embedder; when set, search scores with vector cosine. */
+    private embedder?: Embedder
   ) {}
 
   private brainObject(orgId: string): string {
@@ -209,9 +217,34 @@ export class BrainService {
       if (await this.canView(principal, i)) visible.push(i);
     }
 
+    // Real vector path: when an Embedder is wired, embed the query + any visible
+    // items missing a cached embedding (one batched call), then score with
+    // cosine over dense vectors. Falls back to bag-of-words below otherwise.
+    let queryVec: number[] | undefined;
+    if (this.embedder && visible.length > 0) {
+      const missing = visible.filter((i) => !i.embedding);
+      if (missing.length > 0) {
+        const vecs = await this.embedder.embed(missing.map((i) => `${i.title}\n${i.content}`));
+        missing.forEach((it, idx) => {
+          const v = vecs[idx];
+          if (v) {
+            it.embedding = v;
+            this.store.update(it);
+          }
+        });
+      }
+      const [qv] = await this.embedder.embed([opts.query]);
+      queryVec = qv;
+    }
+
     const scored = visible.map((i) => {
-      const cBag = bag(tokenize(`${i.title} ${i.content}`));
-      const vec = cosine(qBag, cBag);
+      let vec: number;
+      if (queryVec && i.embedding) {
+        vec = cosineVec(queryVec, i.embedding);
+      } else {
+        const cBag = bag(tokenize(`${i.title} ${i.content}`));
+        vec = cosine(qBag, cBag);
+      }
       const contentSet = new Set(tokenize(`${i.title} ${i.content}`));
       let overlap = 0;
       for (const t of qSet) if (contentSet.has(t)) overlap++;

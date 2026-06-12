@@ -32,6 +32,8 @@ export interface CoreConfig {
   jira?: { baseUrl: string; email: string; apiToken: string; projectKey: string; issueType?: string };
   /** Notion source connector OAuth config (read). Registered when set. */
   notion?: { clientId: string; clientSecret: string; redirectUri: string };
+  /** Real embeddings via an OpenAI-compatible /v1/embeddings server; else bag-of-words. */
+  embeddings?: { baseUrl: string; model: string; apiKey?: string };
   /** Default org for single-tenant MVP wiring + dev. */
   defaultOrg: string;
   appUrl: string;
@@ -88,6 +90,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CoreConfig {
             clientSecret: env.NOTION_CLIENT_SECRET,
             redirectUri: env.NOTION_REDIRECT_URI
           }
+        : undefined,
+    embeddings:
+      env.EMBEDDINGS_BASE_URL && env.EMBEDDINGS_MODEL
+        ? { baseUrl: env.EMBEDDINGS_BASE_URL.replace(/\/$/, ""), model: env.EMBEDDINGS_MODEL, apiKey: env.EMBEDDINGS_API_KEY }
         : undefined,
     defaultOrg: env.DEFAULT_ORG ?? "acme",
     appUrl: env.APP_URL ?? "http://localhost:8080"
