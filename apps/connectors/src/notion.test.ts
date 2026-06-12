@@ -14,7 +14,7 @@ import {
   type NotionNativePermissions,
   type NotionConnectorConfig,
 } from "./notion.js";
-import { runConformance } from "./sdk.js";
+import { runConformance } from "./sdk-node.js";
 import { ORG } from "@companyos/testing";
 
 /* ------------------------------------------------------------------ */

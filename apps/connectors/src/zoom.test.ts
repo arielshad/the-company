@@ -14,7 +14,7 @@ import {
   type ZoomWebhookPayload,
   type ZoomNativePermissions,
 } from "./zoom.js";
-import { hmacSha256Hex, runConformance } from "./sdk.js";
+import { hmacSha256Hex, runConformance } from "./sdk-node.js";
 import { ORG } from "@companyos/testing";
 
 /* ------------------------------------------------------------------ */

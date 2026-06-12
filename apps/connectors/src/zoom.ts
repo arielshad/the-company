@@ -26,7 +26,7 @@ import type {
   WebhookCapable,
   WebhookContext,
 } from "./sdk.js";
-import { hmacSha256Hex, safeCompare } from "./sdk.js";
+import { hmacSha256Hex, safeCompare } from "./sdk-node.js";
 
 /** Clean a raw VTT/transcript: strip empty lines and leading/trailing whitespace. */
 function cleanTranscript(raw: string): string {

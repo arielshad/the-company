@@ -143,8 +143,6 @@ export type {
   ConformanceFixtures,
   ConformanceResult,
 } from "./sdk.js";
-export { hmacSha256Hex, safeCompare, runConformance } from "./sdk.js";
-
 // Notion connector (T4.2)
 export type {
   NotionConnectorConfig,
@@ -154,16 +152,14 @@ export type {
 } from "./notion.js";
 export { NotionConnector, notionPageToIngest, mapNotionAcl } from "./notion.js";
 
-// Zoom connector v2 (T4.4)
+// Zoom connector v2 types only — value exports (ZoomConnectorV2, mapZoomAcl,
+// verifyZoomWebhook, hmacSha256Hex, safeCompare, runConformance) are in
+// sdk-node.ts/zoom.ts which use node:crypto and must NOT be bundled for the
+// browser. Import them directly from their sub-modules in server/test code.
 export type {
   ZoomWebhookPayload,
   ZoomRecordingFile,
   ZoomNativePermissions,
-} from "./zoom.js";
-export {
-  ZoomConnector as ZoomConnectorV2,
-  mapZoomAcl,
-  verifyZoomWebhook,
 } from "./zoom.js";
 
 // Slack outbound notifier (T4.5)

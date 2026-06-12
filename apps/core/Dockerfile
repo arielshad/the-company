@@ -11,9 +11,17 @@ WORKDIR /repo
 COPY . .
 RUN pnpm install --frozen-lockfile
 
-# Bundle the server (-> server-dist/core.mjs) and the migration runner.
-RUN pnpm --filter @companyos/core build:server \
- && pnpm --filter @companyos/core exec esbuild src/db/migrate.ts --bundle --platform=node --format=esm --outfile=server-dist/migrate.mjs --packages=external || true
+# Bundle the server fully (no --packages=external so workspace + npm deps are
+# all inlined). ESM output + a require-shim banner lets CJS packages like
+# @openfga/sdk use require('util') without hitting esbuild's dynamic-require
+# limitation; the shim also gives node:sqlite's createRequire a valid URL.
+RUN pnpm --filter @companyos/core exec \
+      esbuild src/index.ts --bundle --platform=node --format=esm \
+        --outfile=server-dist/core.mjs \
+        --banner:js="import { createRequire as __cjsRequire } from 'module'; const require = __cjsRequire(import.meta.url);" \
+ && pnpm --filter @companyos/core exec \
+      esbuild src/db/migrate.ts --bundle --platform=node --format=esm \
+        --outfile=server-dist/migrate.mjs --packages=external || true
 
 # ---------- runtime ----------
 FROM node:22-slim AS runtime
@@ -21,11 +29,13 @@ ENV NODE_ENV=production \
     PORT=8080
 WORKDIR /app
 
-# The bundle marks workspace+npm deps external, so ship node_modules for runtime
-# resolution of fastify/pg/jose/@anthropic-ai/@modelcontextprotocol, etc.
-COPY --from=builder /repo/node_modules ./node_modules
+# Self-contained bundle — no node_modules needed at runtime.
 COPY --from=builder /repo/apps/core/server-dist ./dist
 COPY --from=builder /repo/apps/core/migrations ./migrations
+
+# Pre-create the SQLite data directory so the `node` user can write to it
+# when the core-data volume is mounted at /data.
+RUN mkdir -p /data && chown node:node /data
 
 EXPOSE 8080
 USER node
